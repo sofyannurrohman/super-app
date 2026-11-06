@@ -1,0 +1,2 @@
+ALTER TABLE banner_orders 
+ADD COLUMN store_id UUID REFERENCES stores(id) ON DELETE SET NULL;

@@ -1,0 +1,18 @@
+--- frontend-web/src/views/sales/SuratJalanView.vue
++++ frontend-web/src/views/sales/SuratJalanView.vue
+@@ -536,6 +536,15 @@
+   return selectedDO.value.items.reduce((sum: number, item: any) => sum + item.quantity, 0)
+ })
+ 
++function hasDiscrepancy(item: any) {
++  const payments = item.sales_order?.payments || item.sales_transaction?.payments || []
++  return payments.some((p: any) => p.notes && p.notes.includes('[SELISIH'))
++}
++
++function getDiscrepancyNote(item: any) {
++  const payments = item.sales_order?.payments || item.sales_transaction?.payments || []
++  const p = payments.find((p: any) => p.notes && p.notes.includes('[SELISIH'))
++  return p ? p.notes : ''
++}
++
+ const calculateSubsequentDOPrice = computed(() => {

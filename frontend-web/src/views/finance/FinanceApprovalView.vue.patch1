@@ -1,0 +1,31 @@
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -388,14 +388,12 @@
+ 
+ const activeDeliveryContext = ref<any>(null)
+-const invoiceCashInputs = ref<Record<string, number>>({})
++const selectedPayments = ref<string[]>([])
+ 
+ function handleDeliveryLoaded(data: any) {
+   activeDeliveryContext.value = data
+-  invoiceCashInputs.value = {}
+   const relatedPayments = pendingPayments.value.filter((p: any) =>
+     data.payment_ids?.includes(p.id) || p.sales_order?.delivery_batch_id === data.batch_id
+   )
+-  relatedPayments.forEach((p: any) => {
+-    invoiceCashInputs.value[p.id] = p.amount
+-  })
++  selectedPayments.value = relatedPayments.map((p: any) => p.id)
+ }
+ 
+ function handleDeliveryCleared() {
+   activeDeliveryContext.value = null
+-  invoiceCashInputs.value = {}
++  selectedPayments.value = []
+ }
+ 
+ const autoSumCash = computed(() => {
+-  return Object.values(invoiceCashInputs.value).reduce((sum, amount) => sum + (amount || 0), 0)
++  const relatedPayments = pendingPayments.value.filter((p: any) => selectedPayments.value.includes(p.id))
++  return relatedPayments.reduce((sum, p) => sum + p.amount, 0)
+ })

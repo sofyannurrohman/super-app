@@ -1,0 +1,5 @@
+ALTER TABLE product_transfers
+ADD COLUMN payment_method VARCHAR(50) DEFAULT 'NET',
+ADD COLUMN payment_status VARCHAR(20) DEFAULT 'UNPAID',
+ADD COLUMN total_amount DECIMAL(15,2) DEFAULT 0,
+ADD COLUMN payment_due_at TIMESTAMP WITH TIME ZONE;

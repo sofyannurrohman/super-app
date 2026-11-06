@@ -1,0 +1,1 @@
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES branches(id) ON DELETE SET NULL;

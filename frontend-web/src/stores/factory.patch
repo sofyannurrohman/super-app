@@ -1,0 +1,31 @@
+--- frontend-web/src/stores/factory.ts
++++ frontend-web/src/stores/factory.ts
+@@ -176,6 +176,28 @@
+   }),
+ 
+   actions: {
++    async fetchRawMaterialStock(factoryId: string) {
++      this.loading = true
++      try {
++        const response = await factoryApi.getRawMaterialStock(factoryId)
++        this.rawMaterialStock = response.data?.data || response.data || []
++      } catch (err: any) {
++        this.error = err.response?.data?.error || 'Failed to fetch raw material stock'
++      } finally {
++        this.loading = false
++      }
++    },
++    async fetchRawMaterialLogs(factoryId: string) {
++      this.loading = true
++      try {
++        const response = await factoryApi.getRawMaterialLogs(factoryId)
++        this.rawMaterialLogs = response.data?.data || response.data || []
++      } catch (err: any) {
++        this.error = err.response?.data?.error || 'Failed to fetch raw material logs'
++      } finally {
++        this.loading = false
++      }
++    },
+     async fetchLowStockAlerts() {
+       this.loading = true
+       try {

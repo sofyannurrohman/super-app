@@ -1,0 +1,3 @@
+-- No revert needed as this is a data fix, 
+-- but if we want to go back to default:
+-- UPDATE leave_types SET requires_quota = TRUE WHERE name ILIKE '%Izin%';

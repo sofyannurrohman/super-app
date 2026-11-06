@@ -1,0 +1,1 @@
+ALTER TABLE product_transfers ADD COLUMN IF NOT EXISTS total_volume DECIMAL(10, 4) DEFAULT 0;

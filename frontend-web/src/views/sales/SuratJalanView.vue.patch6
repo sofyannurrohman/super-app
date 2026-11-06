@@ -1,0 +1,11 @@
+--- frontend-web/src/views/sales/SuratJalanView.vue
++++ frontend-web/src/views/sales/SuratJalanView.vue
+@@ -1086,7 +1086,7 @@
+                 </Button>
+               </div>
+               <!-- Tombol Buat Faktur: khusus SJ COMPLETED (daily driver) -->
+-              <div v-else-if="selectedBatch.status === 'COMPLETED' && !isReportingMode" class="flex gap-2">
++              <div v-else-if="['COMPLETED', 'WAITING_CROSSCHECK'].includes(selectedBatch.status) && !isReportingMode" class="flex gap-2">
+                 <Button
+                   @click="openForceInvoiceModal"
+                   class="bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold shadow-md shadow-violet-200"

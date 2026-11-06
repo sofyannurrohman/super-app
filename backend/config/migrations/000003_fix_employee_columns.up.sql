@@ -1,0 +1,5 @@
+ALTER TABLE employees 
+ADD COLUMN IF NOT EXISTS emergency_contact TEXT,
+ADD COLUMN IF NOT EXISTS bank_name VARCHAR(50),
+ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(50),
+ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(100);

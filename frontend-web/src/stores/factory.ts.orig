@@ -1,0 +1,607 @@
+import { defineStore } from 'pinia'
+import { factoryApi } from '@/api/factory'
+
+export interface FactoryWarehouse {
+  id: string
+  factory_id: string
+  name: string
+  code: string
+  type: string
+  description: string
+  created_at: string
+}
+
+export interface Factory {
+  id: string
+  company_id: string
+  branch_id: string
+  name: string
+  location: string
+  warehouse_code?: string
+  branch?: {
+    id: string
+    name: string
+  }
+}
+
+export interface Product {
+  id: string
+  company_id: string
+  name: string
+  sku: string
+  unit: string
+  pcs_per_unit: number
+  weight: number
+  weight_unit: string
+  cost_price: number
+  factory_price: number
+  selling_price: number
+  category?: string
+  brand?: string
+  specs?: string
+  description: string
+  image_url?: string
+  shelf_life_days?: number
+  bpom_number?: string
+  bpom_expiry_date?: string
+  halal_number?: string
+  halal_expiry_date?: string
+}
+
+export interface FactoryStock {
+  id: string
+  factory_id: string
+  product_id: string
+  factory_warehouse_id?: string
+  batch_no: string
+  expiry_date?: string
+  quantity: number
+  updated_at: string
+  product?: Product
+}
+
+export interface ProductionLog {
+  id: string
+  factory_id: string
+  product_id: string
+  batch_no: string
+  expiry_date?: string
+  employee_id: string
+  quantity: number
+  production_date: string
+  notes: string
+  product?: Product
+  employee?: {
+    first_name: string
+    last_name: string
+  }
+}
+
+export interface ProductTransfer {
+  id: string
+  from_factory_id: string
+  to_branch_id: string
+  product_id: string
+  quantity: number
+  total_weight: number
+  status: string
+  batch_no?: string
+  delivery_order_no?: string
+  notes: string
+  target_shipment_date?: string
+  estimated_arrival?: string
+  initiated_by?: string
+  created_at: string
+  product?: Product
+  from_factory?: {
+    name: string
+  }
+  fulfillment_branch?: {
+    name: string
+  }
+  to_branch?: {
+    name: string
+  }
+  unit?: string
+  vehicle_id?: string
+  driver_id?: string
+  vehicle?: {
+    name: string
+    license_plate: string
+    capacity: number
+  }
+  driver?: {
+    first_name: string
+    last_name: string
+  }
+  pcs_per_unit?: number
+  fulfillment_branch_id?: string | null
+  is_stock_borrowed?: boolean
+  replenishment_transfer_id?: string
+}
+
+export interface LowStockAlert {
+  warehouse_stock_id: string
+  branch_id: string
+  branch_name: string
+  product_id: string
+  product_name: string
+  product_sku: string
+  product_unit: string
+  pcs_per_unit: number
+  quantity: number
+  min_limit: number
+  batch_no: string
+}
+
+import { factoryReturnApi } from '@/api/factoryReturn'
+
+export const useFactoryStore = defineStore('factory', {
+  state: () => ({
+    factories: [] as Factory[],
+    factoryWarehouses: [] as FactoryWarehouse[],
+    products: [] as Product[],
+    // Cache metadata for products
+    _productsFetchedAt: 0 as number,
+    _productsFetching: null as Promise<void> | null,
+    productsLoading: false,
+    currentFactory: null as Factory | null,
+    inventory: [] as FactoryStock[],
+    allInventory: [] as FactoryStock[],
+    inventoryLogs: [] as any[],
+    allInventoryLogs: [] as any[],
+    productionHistory: [] as ProductionLog[],
+    allProductionHistory: [] as ProductionLog[],
+    transferHistory: [] as ProductTransfer[],
+    allTransfers: [] as ProductTransfer[],
+    delegatedShipments: [] as ProductTransfer[],
+    delegatedSummary: [] as any[],
+    factoryReturns: [] as any[],
+    backorderDemand: [] as any[],
+    lowStockAlerts: [] as LowStockAlert[],
+    dashboardStats: {
+      total_factories: 0,
+      total_products: 0,
+      pending_shipments: 0,
+      today_production: 0,
+      recent_transfers: [] as ProductTransfer[],
+    },
+    rawMaterialStock: [] as any[],
+    rawMaterialLogs: [] as any[],
+    loading: false,
+    error: null as string | null,
+  }),
+
+  actions: {
+    async fetchRawMaterialStock(factoryId: string) {
+      this.loading = true
+      try {
+        const response = await factoryApi.getRawMaterialStock(factoryId)
+        this.rawMaterialStock = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch raw material stock'
+      } finally {
+        this.loading = false
+      }
+    },
+    async fetchRawMaterialLogs(factoryId: string) {
+      this.loading = true
+      try {
+        const response = await factoryApi.getRawMaterialLogs(factoryId)
+        this.rawMaterialLogs = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch raw material logs'
+      } finally {
+        this.loading = false
+      }
+    },
+    async fetchLowStockAlerts() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getLowStockAlerts()
+        this.lowStockAlerts = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch low stock alerts'
+      } finally {
+        this.loading = false
+      }
+    },
+    async fetchBackorderDemand(companyId: string) {
+      try {
+        const response = await factoryApi.getBackorderDemand(companyId)
+        this.backorderDemand = response.data?.data || response.data || []
+      } catch (err: any) {
+        console.error('Failed to fetch backorder demand:', err)
+      }
+    },
+    async fetchDashboardStats() {
+      try {
+        const response = await factoryApi.getDashboardStats()
+        this.dashboardStats = response.data?.data ||
+          response.data || {
+            total_factories: 0,
+            total_products: 0,
+            pending_shipments: 0,
+            today_production: 0,
+            recent_transfers: [],
+          }
+        if (!this.dashboardStats.recent_transfers) {
+          this.dashboardStats.recent_transfers = []
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch dashboard stats:', err)
+      }
+    },
+    async fetchFactories() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getFactories()
+        this.factories = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch factories'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async createFactory(data: any) {
+      try {
+        await factoryApi.createFactory(data)
+        await this.fetchFactories()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to create factory'
+      }
+    },
+
+    async updateFactory(id: string, data: any) {
+      try {
+        await factoryApi.updateFactory(id, data)
+        await this.fetchFactories()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to update factory'
+      }
+    },
+
+    async deleteFactory(id: string) {
+      try {
+        await factoryApi.deleteFactory(id)
+        await this.fetchFactories()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to delete factory'
+      }
+    },
+
+    async fetchFactoryWarehouses(factoryId: string) {
+      this.loading = true
+      try {
+        const response = await factoryApi.getFactoryWarehouses(factoryId)
+        this.factoryWarehouses = response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch factory warehouses'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async createFactoryWarehouse(factoryId: string, data: any) {
+      try {
+        await factoryApi.createFactoryWarehouse(factoryId, data)
+        await this.fetchFactoryWarehouses(factoryId)
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to create factory warehouse'
+      }
+    },
+
+    async updateFactoryWarehouse(factoryId: string, warehouseId: string, data: any) {
+      try {
+        await factoryApi.updateFactoryWarehouse(warehouseId, data)
+        await this.fetchFactoryWarehouses(factoryId)
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to update factory warehouse'
+      }
+    },
+
+    async deleteFactoryWarehouse(factoryId: string, warehouseId: string) {
+      try {
+        await factoryApi.deleteFactoryWarehouse(warehouseId)
+        await this.fetchFactoryWarehouses(factoryId)
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to delete factory warehouse'
+      }
+    },
+
+    async fetchProducts(force = false) {
+      const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+      const now = Date.now()
+
+      // Return cached data if within TTL and not forced
+      if (!force && this.products.length > 0 && now - this._productsFetchedAt < CACHE_TTL_MS) {
+        return
+      }
+
+      // Deduplicate in-flight requests: if already fetching, wait for same promise
+      if (this._productsFetching) {
+        return this._productsFetching
+      }
+
+      this.productsLoading = true
+      this._productsFetching = (async () => {
+        try {
+          const response = await factoryApi.getProducts()
+          this.products = response.data?.data || response.data || []
+          this._productsFetchedAt = Date.now()
+        } catch (err: any) {
+          this.error = err.response?.data?.error || 'Failed to fetch products'
+        } finally {
+          this.productsLoading = false
+          this._productsFetching = null
+        }
+      })()
+
+      return this._productsFetching
+    },
+
+    /** Invalidate product cache (call after create/update/delete product) */
+    invalidateProductsCache() {
+      this._productsFetchedAt = 0
+    },
+
+    async createProduct(data: any) {
+      try {
+        await factoryApi.createProduct(data)
+        this.invalidateProductsCache()
+        await this.fetchProducts()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to create product'
+      }
+    },
+
+    async updateProduct(id: string, data: any) {
+      try {
+        await factoryApi.updateProduct(id, data)
+        this.invalidateProductsCache()
+        await this.fetchProducts()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to update product'
+      }
+    },
+
+    async deleteProduct(id: string) {
+      try {
+        await factoryApi.deleteProduct(id)
+        this.invalidateProductsCache()
+        await this.fetchProducts()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to delete product'
+      }
+    },
+
+    async fetchFactoryDetail(id: string) {
+      this.loading = true
+      try {
+        const response = await factoryApi.getFactory(id)
+        this.currentFactory = response.data
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch factory detail'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchInventory(factoryId: string) {
+      try {
+        const response = await factoryApi.getInventory(factoryId)
+        this.inventory = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch inventory'
+      }
+    },
+
+    async fetchInventoryLogs(factoryId: string) {
+      try {
+        const response = await factoryApi.getInventoryLogs(factoryId)
+        this.inventoryLogs = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch inventory logs'
+      }
+    },
+
+    async fetchAllInventoryLogs() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getAllInventoryLogs()
+        this.allInventoryLogs = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch all inventory logs'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchAllInventory() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getAllInventory()
+        this.allInventory = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch all inventory'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchProductionHistory(factoryId: string) {
+      try {
+        const response = await factoryApi.getProductionHistory(factoryId)
+        this.productionHistory = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch production history'
+      }
+    },
+
+    async fetchAllProductionHistory() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getAllProductionHistory()
+        this.allProductionHistory = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch all production history'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchTransferHistory(factoryId: string) {
+      try {
+        const response = await factoryApi.getTransferHistory(factoryId)
+        this.transferHistory = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch transfer history'
+      }
+    },
+
+    async fetchAllTransfers() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getAllTransfers()
+        this.allTransfers = response.data?.data || response.data || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch all transfers'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async fetchDelegatedShipments() {
+      this.loading = true
+      try {
+        const response = await factoryApi.getDelegatedShipments()
+        this.delegatedShipments = response.data?.shipments || []
+        this.delegatedSummary = response.data?.summary || []
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch delegated shipments'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async logProduction(factoryId: string, data: any) {
+      try {
+        await factoryApi.logProduction(factoryId, data)
+        await this.fetchInventory(factoryId)
+        await this.fetchProductionHistory(factoryId)
+      } catch (err: any) {
+        throw err
+      }
+    },
+
+    async updateProductionLog(factoryId: string, id: string, data: any) {
+      try {
+        await factoryApi.updateProductionLog(id, data)
+        await this.fetchInventory(factoryId)
+        await this.fetchProductionHistory(factoryId)
+      } catch (err: any) {
+        throw err
+      }
+    },
+
+    async deleteProductionLog(factoryId: string, id: string) {
+      try {
+        await factoryApi.deleteProductionLog(id)
+        await this.fetchInventory(factoryId)
+        await this.fetchProductionHistory(factoryId)
+      } catch (err: any) {
+        throw err
+      }
+    },
+
+    async adjustStock(factoryId: string, data: any) {
+      try {
+        await factoryApi.adjustStock(factoryId, data)
+        await this.fetchInventory(factoryId)
+      } catch (err: any) {
+        throw err
+      }
+    },
+
+    async sendToBranch(factoryId: string, data: any) {
+      try {
+        await factoryApi.sendToBranch(factoryId, data)
+        await this.fetchInventory(factoryId)
+        await this.fetchAllTransfers()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to initiate transfer'
+      }
+    },
+
+    async shipTransfer(id: string) {
+      try {
+        await factoryApi.shipTransfer(id)
+        await this.fetchAllTransfers()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to execute shipment'
+      }
+    },
+
+    async approveTransfer(id: string) {
+      try {
+        await factoryApi.approveTransfer(id)
+        await this.fetchAllTransfers()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to approve transfer'
+      }
+    },
+
+    async updateTransfer(id: string, data: any) {
+      try {
+        await factoryApi.updateTransfer(id, data)
+        await this.fetchAllTransfers()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to update transfer'
+      }
+    },
+
+    async deleteTransfer(id: string) {
+      try {
+        await factoryApi.deleteTransfer(id)
+        await this.fetchAllTransfers()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to delete transfer'
+      }
+    },
+
+    async createTransfer(data: any) {
+      try {
+        const res = await factoryApi.createTransfer(data)
+        await this.fetchAllTransfers()
+        return res.data
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to create transfer'
+      }
+    },
+    async fetchFactoryReturns(factoryId: string) {
+      try {
+        const response = await factoryReturnApi.getByFactory(factoryId)
+        this.factoryReturns = response.data
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch factory returns'
+      }
+    },
+    async fetchAllFactoryReturns() {
+      try {
+        const response = await factoryReturnApi.getByCompany()
+        this.factoryReturns = response.data
+      } catch (err: any) {
+        this.error = err.response?.data?.error || 'Failed to fetch all factory returns'
+      }
+    },
+    async receiveFactoryReturn(id: string) {
+      try {
+        await factoryReturnApi.receiveReturn(id)
+        await this.fetchAllFactoryReturns()
+      } catch (err: any) {
+        throw err.response?.data?.error || 'Failed to receive return'
+      }
+    },
+  },
+})

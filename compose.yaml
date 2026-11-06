@@ -1,0 +1,89 @@
+name: ${COMPOSE_PROJECT_NAME:-hris-client-trial}
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trial
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: hris_trial
+    volumes:
+      - trial-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trial -d hris_trial"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - trial-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: trial
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      DB_NAME: hris_trial
+      REDIS_ADDR: redis:6379
+      SERVER_PORT: "8081"
+      ENABLED_MODULES: ${VITE_ENABLED_MODULES:-hris}
+      SKIP_SEED: "true"
+      SKIP_AUTO_MIGRATE: "false"
+      MIDTRANS_IS_PRODUCTION: "false"
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend-web
+      dockerfile: Dockerfile.trial
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_ENABLED_MODULES: ${VITE_ENABLED_MODULES:-hris}
+        VITE_ENABLE_PKWT: ${VITE_ENABLE_PKWT:-false}
+        VITE_APP_NAME: ${VITE_APP_NAME:-Karsa HR}
+        VITE_APP_TAGLINE: ${VITE_APP_TAGLINE:-Kelola tim. Gerakkan bisnis.}
+        VITE_APP_LOGO_URL: ${VITE_APP_LOGO_URL:-/brand.svg}
+        VITE_SUPPORT_EMAIL: ${VITE_SUPPORT_EMAIL:-}
+        VITE_SUPPORT_WHATSAPP_PERSONAL: ${VITE_SUPPORT_WHATSAPP_PERSONAL:-}
+        VITE_SUPPORT_WHATSAPP_GROUP: ${VITE_SUPPORT_WHATSAPP_GROUP:-}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${TRIAL_HTTP_PORT:-13001}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:80 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  trial-postgres:
+  trial-redis:

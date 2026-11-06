@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_attendance_logs_clock_in_time_desc;

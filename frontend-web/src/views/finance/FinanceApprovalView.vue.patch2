@@ -1,0 +1,31 @@
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -399,6 +399,10 @@
+   invoiceCashInputs.value = {}
+ }
+ 
++const autoSumCash = computed(() => {
++  return Object.values(invoiceCashInputs.value).reduce((sum, amount) => sum + (amount || 0), 0)
++})
++
+ function isTransactionInLps(p: any) {
+   if (!activeLpsContext.value || !activeLpsContext.value.data) return false
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -406,6 +406,17 @@
+   return relatedPayments.reduce((sum, p) => sum + p.amount, 0)
+ })
+ 
++const isAllSelected = computed(() => {
++  return filteredCashList().length > 0 && selectedPayments.value.length === filteredCashList().length
++})
++
++function toggleAll(event: any) {
++  if (event.target.checked) {
++    selectedPayments.value = filteredCashList().map((p: any) => p.id)
++  } else {
++    selectedPayments.value = []
++  }
++}
++
+ function isTransactionInLps(p: any) {

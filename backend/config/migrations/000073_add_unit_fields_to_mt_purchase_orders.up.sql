@@ -1,0 +1,3 @@
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS unit_name VARCHAR(50) DEFAULT 'Kardus';
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS pcs_per_unit INTEGER DEFAULT 1;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS factory_price DECIMAL(15,2) DEFAULT 0;

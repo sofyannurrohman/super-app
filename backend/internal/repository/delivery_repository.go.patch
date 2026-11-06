@@ -1,0 +1,10 @@
+--- internal/repository/delivery_repository.go
++++ internal/repository/delivery_repository.go
+@@ -53,6 +53,7 @@
+ 			Preload("Items.SalesOrder.Items.Product").
+ 			Preload("Items.SalesOrder.Returns").
+ 			Preload("Items.SalesOrder.Returns.Items.Product").
++			Preload("Items.SalesOrder.Payments").
+ 			// PENTING: muat alokasi batch per item SO agar StartDelivery bisa potong stok per-batch
+ 			Preload("Items.SalesOrder.Items.Batches").
+ 			Preload("Items.SalesOrder.BonusItems").

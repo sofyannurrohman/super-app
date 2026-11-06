@@ -1,0 +1,13 @@
+--- internal/usecase/delivery_usecase.go
++++ internal/usecase/delivery_usecase.go
+@@ -2554,8 +2554,8 @@
+ 		if err := u.db.First(&batch, "id = ?", batchID).Error; err != nil {
+ 			return fmt.Errorf("surat jalan tidak ditemukan: %w", err)
+ 		}
+-		if batch.Status != domain.DeliveryBatchCompleted {
+-			return errors.New("hanya Surat Jalan berstatus SELESAI (COMPLETED) yang dapat dibuatkan fakturnya")
++		if batch.Status != domain.DeliveryBatchCompleted && batch.Status != domain.DeliveryBatchWaitingCrosscheck {
++			return errors.New("hanya Surat Jalan berstatus SELESAI atau WAITING_CROSSCHECK yang dapat dibuatkan fakturnya")
+ 		}
+ 
+ 		// Build map SO → request agar lookup O(1)

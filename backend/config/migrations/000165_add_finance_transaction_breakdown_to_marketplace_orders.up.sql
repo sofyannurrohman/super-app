@@ -1,0 +1,5 @@
+ALTER TABLE marketplace_orders
+    ADD COLUMN IF NOT EXISTS fee_and_tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS shipping_cost_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS adjustment_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS fee_tax_breakdown JSONB;

@@ -1,0 +1,9 @@
+ALTER TABLE mt_spg_daily_reports
+ADD COLUMN IF NOT EXISTS schedule_id UUID REFERENCES mt_spg_schedules(id) ON DELETE SET NULL,
+ADD COLUMN IF NOT EXISTS target_amount NUMERIC(15,2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS base_fee NUMERIC(15,2) DEFAULT 200000,
+ADD COLUMN IF NOT EXISTS incentive_bonus NUMERIC(15,2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS total_spg_payout NUMERIC(15,2) DEFAULT 200000,
+ADD COLUMN IF NOT EXISTS is_target_achieved BOOLEAN DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_mt_spg_daily_reports_schedule_id ON mt_spg_daily_reports(schedule_id);

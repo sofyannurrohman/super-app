@@ -1,0 +1,1 @@
+-- Keep nullable columns and item_name: dropping them would destroy employee PR data.

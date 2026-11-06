@@ -1,0 +1,11 @@
+ALTER TABLE cash_bank_mutations DROP COLUMN IF EXISTS reimbursement_id;
+ALTER TABLE cash_bank_mutations DROP COLUMN IF EXISTS category;
+ALTER TABLE reimbursements DROP COLUMN IF EXISTS disbursement_proof_url;
+ALTER TABLE reimbursements DROP COLUMN IF EXISTS disbursed_by;
+ALTER TABLE reimbursements DROP COLUMN IF EXISTS disbursed_at;
+ALTER TABLE reimbursements DROP COLUMN IF EXISTS disbursed_via;
+ALTER TABLE reimbursements DROP COLUMN IF EXISTS disbursement_status;
+ALTER TABLE cashier_financial_reports DROP COLUMN IF EXISTS target_kas_pabrik_id;
+ALTER TABLE cashier_financial_reports DROP COLUMN IF EXISTS deposit_destination_type;
+ALTER TABLE cashier_financial_reports DROP COLUMN IF EXISTS allocated_to_petty_cash;
+ALTER TABLE branches DROP COLUMN IF EXISTS petty_cash_balance;

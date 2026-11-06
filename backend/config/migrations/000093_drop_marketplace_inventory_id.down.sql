@@ -1,0 +1,2 @@
+ALTER TABLE marketplace_product_mappings
+ADD COLUMN marketplace_inventory_id UUID;

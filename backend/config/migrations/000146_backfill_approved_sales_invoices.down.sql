@@ -1,0 +1,2 @@
+-- Tidak membatalkan status secara otomatis karena status APPROVED dapat
+-- berubah setelah migration melalui workflow aplikasi.

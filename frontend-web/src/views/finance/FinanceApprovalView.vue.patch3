@@ -1,0 +1,49 @@
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -1039,9 +1039,18 @@
+ 
+                   <!-- 5. Amount -->
+                   <td class="px-6 py-4">
+-                    <p class="text-xs font-black text-slate-800">
+-                      {{ formatCurrency(p.amount) }}
+-                    </p>
++                    <div v-if="activeDeliveryContext && (activeDeliveryContext.payment_ids?.includes(p.id) || p.sales_order?.delivery_batch_id === activeDeliveryContext.batch_id) && p.payment_status === 'PENDING' && (p.payment_method === 'CASH' || p.payment_method === 'TUNAI')" class="flex items-center gap-1">
++                      <span class="text-xs font-bold text-slate-500">Rp</span>
++                      <input 
++                        v-model.number="invoiceCashInputs[p.id]" 
++                        type="number" 
++                        class="w-24 border border-emerald-200 rounded-lg px-2 py-1 text-xs font-black text-emerald-700 bg-emerald-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
++                      />
++                    </div>
++                    <p v-else class="text-xs font-black text-slate-800">
++                      {{ formatCurrency(p.amount) }}
++                    </p>
+                     <span
+                       :class="[
+                         p.payment_method === 'CASH'
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -1120,8 +1120,13 @@
+                             Menunggu<br/>Admin Nota
+                           </span>
+                         </div>
++                        <div v-else-if="p.notes && p.notes.includes('[SELISIH')" class="flex flex-col items-center justify-center">
++                          <span class="bg-amber-500/10 text-amber-700 border border-amber-200/50 text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-wider text-center leading-tight">
++                            Dilaporkan<br/>Selisih
++                          </span>
++                        </div>
+                         <template v-else>
+                           <button
+-                            v-if="invoiceCashInputs[p.id] === undefined || (invoiceCashInputs[p.id] ?? 0) >= p.amount"
+                             @click="triggerConfirm('approve', p.id)"
+                             :disabled="isActionLoading !== null || isConfirmLoading"
+                             class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl p-2 text-xs font-black transition-all flex items-center justify-center shadow-lg shadow-emerald-500/20 disabled:opacity-50 active:scale-95"
+@@ -1130,7 +1135,7 @@
+                             <Check class="w-4 h-4" />
+                           </button>
+                           <button
+-                            v-if="invoiceCashInputs[p.id] !== undefined && (invoiceCashInputs[p.id] ?? 0) < p.amount"
++                            v-if="activeDeliveryContext && !selectedPayments.includes(p.id) && (p.payment_method === 'CASH' || p.payment_method === 'TUNAI')"
+                             @click="triggerConfirm('discrepancy', p.id)"
+                             :disabled="isActionLoading !== null || isConfirmLoading"
+                             class="bg-amber-500 hover:bg-amber-600 text-white rounded-xl p-2 text-xs font-black transition-all flex items-center justify-center shadow-lg shadow-amber-500/20 disabled:opacity-50 active:scale-95"

@@ -1,0 +1,1934 @@
+<script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { toast } from 'vue-sonner'
+import apiClient from '@/api/axios'
+import {
+  Check,
+  X,
+  Search,
+  Coins,
+  CreditCard,
+  Calendar,
+  User,
+  Store,
+  ChevronRight,
+  AlertCircle,
+  AlertTriangle,
+  FileText,
+  ExternalLink,
+  ScanBarcode,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  RefreshCw,
+} from 'lucide-vue-next'
+
+import LPSReconciliationTab from './LPSReconciliationTab.vue'
+import DeliveryReconciliationTab from './DeliveryReconciliationTab.vue'
+
+// State
+const activeTab = ref<'cash' | 'midtrans' | 'daily_worker'>('cash')
+const isLoading = ref(false)
+const searchQuery = ref('')
+const currentPage = ref(1)
+const limit = ref(10)
+const totalItems = ref(0)
+const totalPages = computed(() => Math.ceil(totalItems.value / limit.value))
+const displayedPages = computed(() => {
+  const current = currentPage.value
+  const total = totalPages.value
+  const delta = 1 // number of pages beside current
+
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+
+  let pages = []
+  pages.push(1)
+
+  if (current > delta + 2) {
+    pages.push('...')
+  }
+
+  const start = Math.max(2, current - delta)
+  const end = Math.min(total - 1, current + delta)
+
+  for (let i = start; i <= end; i++) {
+    pages.push(i)
+  }
+
+  if (current < total - delta - 1) {
+    pages.push('...')
+  }
+
+  pages.push(total)
+
+  return pages
+})
+
+const pendingPayments = ref<any[]>([])
+const midtransPayments = ref<any[]>([])
+const dailyWorkerSalaries = ref<any[]>([])
+ 
+const isActionLoading = ref<string | null>(null)
+ 
+// Invoice Modal State
+const showInvoiceModal = ref(false)
+const selectedPaymentDetail = ref<any>(null)
+const iframeLoading = ref(true)
+ 
+const openInvoiceModal = (payment: any) => {
+  selectedPaymentDetail.value = payment
+  iframeLoading.value = true
+  showInvoiceModal.value = true
+}
+
+// Zoomable Image Preview Modal State
+const showPreviewModal = ref(false)
+const previewImageUrl = ref('')
+const previewModalTitle = ref('Preview Nota')
+const previewModalSubtitle = ref('')
+const zoomScale = ref(1.0)
+const rotationDegrees = ref(0)
+
+const openPreviewModal = (url: string, title = 'Preview Nota', subtitle = '') => {
+  previewImageUrl.value = url
+  previewModalTitle.value = title
+  previewModalSubtitle.value = subtitle
+  zoomScale.value = 1.0
+  rotationDegrees.value = 0
+  showPreviewModal.value = true
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+  previewImageUrl.value = ''
+  previewModalSubtitle.value = ''
+}
+
+const zoomIn = () => {
+  zoomScale.value = Math.min(zoomScale.value + 0.2, 3.0)
+}
+
+const zoomOut = () => {
+  zoomScale.value = Math.max(zoomScale.value - 0.2, 0.5)
+}
+
+const rotateImage = () => {
+  rotationDegrees.value = (rotationDegrees.value + 90) % 360
+}
+
+const resetZoom = () => {
+  zoomScale.value = 1.0
+  rotationDegrees.value = 0
+}
+
+const getFullImageUrl = (path?: string | null): string => {
+  if (!path) return ''
+  if (path.startsWith('http') || path.startsWith('data:')) return path
+  const apiUrl =
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    window.location.origin
+  try {
+    const origin = new URL(apiUrl).origin
+    return origin + (path.startsWith('/') ? path : `/${path}`)
+  } catch {
+    const host = apiUrl.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '')
+    return host + (path.startsWith('/') ? path : `/${path}`)
+  }
+}
+
+const getReceiptPreviewUrl = (payment: any): string => {
+  const receiptImage =
+    payment?.sales_transaction?.receipt_image_url ||
+    payment?.sales_order?.invoice?.receipt_image_url ||
+    ''
+  return getFullImageUrl(receiptImage)
+}
+
+const openReceiptPreview = (payment: any) => {
+  const receiptPreviewUrl = getReceiptPreviewUrl(payment)
+  if (!receiptPreviewUrl) return
+
+  openPreviewModal(
+    receiptPreviewUrl,
+    'Preview Nota',
+    getReceiptNo(payment) ||
+      payment?.sales_order?.so_number ||
+      payment?.sales_transaction?.receipt_no ||
+      '',
+  )
+}
+
+/**
+ * Resolve receipt_no from payment:
+ *  - SalesTransaction (motoris)  → sales_transaction.receipt_no
+ *  - SalesOrder (driver delivery) → sales_order.invoice.receipt_no (linked SalesTransaction)
+ */
+const getReceiptNo = (payment: any): string | null => {
+  return payment?.sales_transaction?.receipt_no || payment?.sales_order?.invoice?.receipt_no || null
+}
+
+const getInvoiceUrl = (payment: any): string | undefined => {
+  const receiptNo = getReceiptNo(payment)
+  if (!receiptNo) return undefined
+  return `/invoice/${receiptNo}`
+}
+
+const openInvoiceNewTab = (payment: any) => {
+  const url = getInvoiceUrl(payment)
+  if (url) window.open(url, '_blank')
+}
+
+import { useMasterDataStore } from '@/stores/masterData'
+
+// Methods
+const fetchPendingCashPayments = async () => {
+  isLoading.value = true
+  try {
+    const masterDataStore = useMasterDataStore()
+    const branchId = masterDataStore.selectedBranchId
+    const hasBranch = branchId && branchId !== 'ALL_BRANCHES'
+    const companyId = masterDataStore.selectedBranchCompanyId
+    const companyQuery = (!hasBranch && companyId) ? { company_id: companyId } : {}
+    
+    const res = await apiClient.get('/finance/payments/pending', {
+      params: {
+        page: currentPage.value,
+        limit: limit.value,
+        search: searchQuery.value,
+        status: filterStatus.value,
+        ...companyQuery,
+        ...(hasBranch ? { branch_id: branchId } : {}),
+      },
+    })
+    if (res.data?.data) {
+      const data = res.data.data
+      if (hasBranch) {
+        pendingPayments.value = data.filter((item: any) => 
+          item.employee?.branch_id === branchId || 
+          item.sales_order?.branch_id === branchId || 
+          item.sales_transaction?.branch_id === branchId
+        )
+        totalItems.value = pendingPayments.value.length
+      } else {
+        pendingPayments.value = data
+        totalItems.value = res.data.meta?.total || 0
+      }
+    }
+  } catch (e: any) {
+    console.error(e)
+    toast.error('Gagal mengambil setoran tunai pending')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const fetchMidtransPayments = async () => {
+  isLoading.value = true
+  try {
+    const masterDataStore = useMasterDataStore()
+    const branchId = masterDataStore.selectedBranchId
+    const hasBranch = branchId && branchId !== 'ALL_BRANCHES'
+    const companyId = masterDataStore.selectedBranchCompanyId
+    const companyQuery = (!hasBranch && companyId) ? { company_id: companyId } : {}
+    
+    const res = await apiClient.get('/finance/payments/midtrans', {
+      params: {
+        page: currentPage.value,
+        limit: limit.value,
+        search: searchQuery.value,
+        status: filterStatus.value,
+        ...companyQuery,
+        ...(hasBranch ? { branch_id: branchId } : {}),
+      },
+    })
+    if (res.data?.data) {
+      const data = res.data.data
+      if (hasBranch) {
+        midtransPayments.value = data.filter((item: any) => 
+          item.employee?.branch_id === branchId || 
+          item.sales_order?.branch_id === branchId || 
+          item.sales_transaction?.branch_id === branchId
+        )
+        totalItems.value = midtransPayments.value.length
+      } else {
+        midtransPayments.value = data
+        totalItems.value = res.data.meta?.total || 0
+      }
+    }
+  } catch (e: any) {
+    console.error(e)
+    toast.error('Gagal mengambil transaksi transfer Midtrans')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const fetchDailyWorkerSalaries = async () => {
+  try {
+    isLoading.value = true
+    const res = await apiClient.get('/daily-worker-salaries')
+    if (res.data?.data) {
+      // Filter ONLY UNPAID
+      let salaries = res.data.data.filter((s: any) => s.status === 'UNPAID')
+      
+      const q = searchQuery.value.toLowerCase()
+      if (q) {
+        salaries = salaries.filter((s: any) => 
+          s.daily_worker?.name?.toLowerCase().includes(q) ||
+          s.notes?.toLowerCase().includes(q)
+        )
+      }
+      dailyWorkerSalaries.value = salaries.map((s: any) => ({
+        ...s,
+        inputAmount: s.total_paid || null // Default to existing if not 0
+      }))
+      totalItems.value = salaries.length
+    }
+  } catch (e: any) {
+    console.error(e)
+    toast.error('Gagal mengambil data tagihan gaji harian')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const payDailyWorkerSalary = async (salary: any) => {
+  if (!salary.inputAmount || salary.inputAmount <= 0) {
+    toast.error('Harap isi nominal gaji yang valid terlebih dahulu')
+    return
+  }
+  if (!confirm(`Anda yakin ingin melunasi tagihan gaji ini sebesar Rp ${formatRupiah(salary.inputAmount)}?`)) return
+  try {
+    isActionLoading.value = `pay_salary_${salary.id}`
+    await apiClient.put(`/daily-worker-salaries/${salary.id}/pay`, {
+      total_paid: Number(salary.inputAmount)
+    })
+    toast.success('Gaji berhasil ditandai Lunas!')
+    loadData()
+  } catch (e: any) {
+    toast.error(e.response?.data?.error || 'Gagal melunasi tagihan gaji')
+  } finally {
+    isActionLoading.value = null
+  }
+}
+
+const loadData = () => {
+  fetchDailySummary()
+  if (activeTab.value === 'cash') {
+    fetchPendingCashPayments()
+  } else if (activeTab.value === 'midtrans') {
+    fetchMidtransPayments()
+  } else if (activeTab.value === 'daily_worker') {
+    fetchDailyWorkerSalaries()
+  }
+}
+
+const dailySummary = ref({
+  total_cash_sales: 0,
+  total_transfer_sales: 0
+})
+
+const fetchDailySummary = async () => {
+  try {
+    const masterDataStore = useMasterDataStore()
+    const branchId = masterDataStore.selectedBranchId
+    const hasBranch = branchId && branchId !== 'ALL_BRANCHES'
+    const companyId = masterDataStore.selectedBranchCompanyId
+    const companyQuery = (!hasBranch && companyId) ? { company_id: companyId } : {}
+    
+    const res = await apiClient.get('/cashier-reports/daily-summary', {
+      params: {
+        ...companyQuery,
+        ...(hasBranch ? { branch_id: branchId } : {}),
+      }
+    })
+    if (res.data?.data) {
+      dailySummary.value = res.data.data
+    }
+  } catch (error) {
+    console.error("Gagal mengambil daily summary", error)
+  }
+}
+
+const masterDataStoreLocal = useMasterDataStore()
+watch(
+  () => masterDataStoreLocal.selectedBranchId,
+  () => {
+    currentPage.value = 1
+    loadData()
+  },
+)
+
+const activeLpsContext = ref<any>(null)
+
+function handleLpsLoaded(ctx: any) {
+  activeLpsContext.value = ctx
+}
+
+function handleLpsCleared() {
+  activeLpsContext.value = null
+}
+
+function handleLpsApproved() {
+  activeLpsContext.value = null
+  fetchPendingCashPayments()
+}
+
+// LPS Preview Modal State
+const showLpsModal = ref(false)
+const lpsModalUrl = ref('')
+
+function handleLpsPreview(data: any) {
+  lpsModalUrl.value = `/lps-print?date=${data.date}&salesman_id=${data.salesman_id}&print=1`
+  showLpsModal.value = true
+}
+
+const activeDeliveryContext = ref<any>(null)
+const invoiceCashInputs = ref<Record<string, number>>({})
+
+function handleDeliveryLoaded(data: any) {
+  activeDeliveryContext.value = data
+  invoiceCashInputs.value = {}
+  const relatedPayments = pendingPayments.value.filter((p: any) =>
+    data.payment_ids?.includes(p.id) || p.sales_order?.delivery_batch_id === data.batch_id
+  )
+  relatedPayments.forEach((p: any) => {
+    invoiceCashInputs.value[p.id] = p.amount
+  })
+}
+
+function handleDeliveryCleared() {
+  activeDeliveryContext.value = null
+  invoiceCashInputs.value = {}
+}
+
+function isTransactionInLps(p: any) {
+  if (!activeLpsContext.value || !activeLpsContext.value.data) return false
+  const itemDate = new Date(p.payment_date || p.created_at).toISOString().split('T')[0]
+  const empId = p.employee_id || p.employee?.id
+  return empId === activeLpsContext.value.employee_id && itemDate === activeLpsContext.value.date
+}
+
+const formatRupiah = (value: number) => {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value)
+}
+
+const handleTabChange = (tab: 'cash' | 'midtrans' | 'daily_worker') => {
+  activeTab.value = tab
+  searchQuery.value = ''
+  currentPage.value = 1
+  loadData()
+}
+
+const handleApproveFromModal = (id: string) => {
+  triggerConfirm('approve', id)
+  showInvoiceModal.value = false
+}
+
+// Confirmation Modal State
+const showConfirmModal = ref(false)
+const confirmType = ref<'approve' | 'reject' | 'discrepancy'>('approve')
+const confirmTargetId = ref('')
+const isConfirmLoading = ref(false)
+const rejectionReason = ref('')
+
+const triggerConfirm = (type: 'approve' | 'reject' | 'discrepancy', id: string) => {
+  confirmType.value = type
+  confirmTargetId.value = id
+  rejectionReason.value = ''
+  showConfirmModal.value = true
+}
+
+const executeAction = async () => {
+  isConfirmLoading.value = true
+  const id = confirmTargetId.value
+  try {
+    if (confirmType.value === 'approve') {
+      const res = await apiClient.post(`/finance/payments/${id}/approve`)
+      if (res.data?.message) {
+        toast.success('Pembayaran berhasil disetujui & diverifikasi!')
+        loadData()
+      }
+    } else if (confirmType.value === 'reject') {
+      const res = await apiClient.post(`/finance/payments/${id}/reject`, {
+        rejection_reason: rejectionReason.value
+      })
+      if (res.data?.message) {
+        toast.success('Pembayaran berhasil ditolak.')
+        loadData()
+      }
+    } else if (confirmType.value === 'discrepancy') {
+      const res = await apiClient.post(`/finance/payments/${id}/discrepancy`, {
+        notes: rejectionReason.value
+      })
+      if (res.data?.message) {
+        toast.success('Selisih berhasil dilaporkan!')
+        loadData()
+      }
+    }
+  } catch (e: any) {
+    toast.error(
+      e.response?.data?.message ||
+        `Gagal memproses tagihan`,
+    )
+  } finally {
+    isConfirmLoading.value = false
+    showConfirmModal.value = false
+  }
+}
+
+let searchTimeout: any = null
+watch(searchQuery, () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1
+    loadData()
+  }, 500)
+})
+
+const changePage = (page: number) => {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+    loadData()
+  }
+}
+
+onMounted(() => {
+  loadData()
+  window.addEventListener('keydown', handlePreviewHotkeys)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handlePreviewHotkeys)
+})
+
+const getInitials = (firstName: string, lastName?: string) => {
+  const first = firstName ? firstName.charAt(0) : ''
+  const last = lastName ? lastName.charAt(0) : ''
+  return (first + last).toUpperCase() || 'S'
+}
+
+const formatCurrency = (val: number) => {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(val)
+}
+
+const formatDateTime = (dateStr: string) => {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleString('id-ID', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const formatPaymentMethod = (m: any) => {
+  const method = m.payment_method || ''
+  if (method === 'VA' || method === 'MIDTRANS_VA' || method === 'bank_transfer') {
+    const bank = m.sales_order?.midtrans_bank || m.sales_transaction?.midtrans_bank || ''
+    if (bank) {
+      return `VA ${bank.toUpperCase()}`
+    }
+    return 'VA Transfer'
+  }
+  return method
+}
+
+const handlePreviewHotkeys = (event: KeyboardEvent) => {
+  if (!showPreviewModal.value) return
+  if (event.key === 'Escape') {
+    closePreviewModal()
+  }
+}
+
+// Filter States
+const filterRole = ref<'all' | 'sales' | 'driver'>('all')
+const filterStatus = ref<'all' | 'pending' | 'success' | 'rejected'>('all')
+
+watch(filterStatus, () => {
+  currentPage.value = 1
+  loadData()
+})
+
+const barcodeInput = ref('')
+
+// Synth Beep for Barcode Verification
+const playBeep = (type: 'success' | 'error') => {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+
+    if (type === 'success') {
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(880, ctx.currentTime) // High pleasant tone
+      gain.gain.setValueAtTime(0.08, ctx.currentTime)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.12)
+    } else {
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(220, ctx.currentTime) // Buzzing tone
+      gain.gain.setValueAtTime(0.12, ctx.currentTime)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.25)
+    }
+  } catch (err) {
+    console.error('Audio beep failed', err)
+  }
+}
+
+const handleBarcodeScan = () => {
+  const code = barcodeInput.value.trim()
+  if (!code) return
+
+  // Find in cash list first, then midtrans list
+  let found = pendingPayments.value.find((p) => {
+    const receiptNo =
+      p.sales_transaction?.receipt_no ||
+      p.sales_order?.so_number ||
+      p.sales_order?.invoice?.receipt_no ||
+      ''
+    return receiptNo.toLowerCase() === code.toLowerCase()
+  })
+
+  if (!found) {
+    found = midtransPayments.value.find((p) => {
+      const receiptNo = p.sales_order?.so_number || p.sales_transaction?.receipt_no || ''
+      const orderId = p.order_id || ''
+      return (
+        receiptNo.toLowerCase() === code.toLowerCase() ||
+        orderId.toLowerCase() === code.toLowerCase()
+      )
+    })
+  }
+
+  if (found) {
+    playBeep('success')
+    toast.success(`Barcode berhasil dipindai: ${code}`)
+    openInvoiceModal(found)
+    barcodeInput.value = ''
+  } else {
+    playBeep('error')
+    toast.error(`Transaksi dengan kode "${code}" tidak ditemukan dalam daftar pending/verifikasi.`)
+  }
+}
+
+function isTransactionInDelivery(p: any) {
+  if (!activeDeliveryContext.value) return false
+  const batchId = activeDeliveryContext.value.batch_id
+  
+  // Try to match against the full list of payment IDs (if backend provided it)
+  if (activeDeliveryContext.value.payment_ids && activeDeliveryContext.value.payment_ids.includes(p.id)) {
+    return true
+  }
+
+  // Fallback: match the pending payment IDs
+  if (activeDeliveryContext.value.pending_payment_ids && activeDeliveryContext.value.pending_payment_ids.includes(p.id)) {
+    return true
+  }
+
+  // Fallback: match by batch ID associated with the sales order
+  if (batchId && p.sales_order && p.sales_order.delivery_batch_id === batchId) {
+    return true
+  }
+  
+  // Fallback: match by batch ID associated with sales transaction
+  if (batchId && p.sales_transaction && p.sales_transaction.delivery_batch_id === batchId) {
+    return true
+  }
+
+  return false
+}
+
+// Filtered Computed Lists
+const filteredCashList = () => {
+  let list = pendingPayments.value
+
+  // LPS Filter
+  if (activeLpsContext.value && activeLpsContext.value.data) {
+    list = list.filter((p) => isTransactionInLps(p))
+  }
+
+  // Delivery SJ Filter
+  if (activeDeliveryContext.value) {
+    list = list.filter((p) => isTransactionInDelivery(p))
+  }
+
+  // Role filter
+  if (filterRole.value !== 'all') {
+    list = list.filter((p) => {
+      if (filterRole.value === 'sales') return !!p.sales_transaction
+      if (filterRole.value === 'driver') return !!p.sales_order
+      return true
+    })
+  }
+
+  // Status filter
+  if (filterStatus.value !== 'all') {
+    list = list.filter((p) => {
+      const status = p.payment_status?.toUpperCase() || ''
+      if (filterStatus.value === 'pending') return status === 'PENDING'
+      if (filterStatus.value === 'success') return status === 'SUCCESS' || status === 'PAID'
+      if (filterStatus.value === 'rejected') return status === 'REJECTED' || status === 'FAILED'
+      return true
+    })
+  }
+
+  return list
+}
+
+const filteredMidtransList = () => {
+  let list = midtransPayments.value
+
+  // LPS Filter
+  if (activeLpsContext.value && activeLpsContext.value.data) {
+    list = list.filter((p) => isTransactionInLps(p))
+  }
+
+  if (filterRole.value !== 'all') {
+    list = list.filter((p) => {
+      if (filterRole.value === 'sales') return !!p.sales_transaction
+      if (filterRole.value === 'driver') return !!p.sales_order
+      return true
+    })
+  }
+
+  if (filterStatus.value !== 'all') {
+    list = list.filter((p) => {
+      const status = p.payment_status?.toUpperCase() || ''
+      if (filterStatus.value === 'pending') return status === 'PENDING'
+      if (filterStatus.value === 'success') return status === 'SUCCESS' || status === 'PAID'
+      if (filterStatus.value === 'rejected') return status === 'REJECTED' || status === 'FAILED'
+      return true
+    })
+  }
+
+  return list
+}
+</script>
+
+<template>
+  <div class="space-y-8 pb-10">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+      <div>
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">
+          Persetujuan & Verifikasi Kasir
+        </h1>
+        <p class="text-[15px] font-medium text-slate-500 mt-1.5 flex items-center gap-2">
+          <Coins class="w-4 h-4 text-primary" />
+          Kelola uang fisik setoran dari salesman dan pantau riwayat transfer bank manual perusahaan.
+        </p>
+      </div>
+ 
+      <!-- Tab Switcher -->
+      <div class="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50">
+        <button
+          @click="handleTabChange('cash')"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-extrabold transition-all duration-300"
+          :class="
+            activeTab === 'cash'
+              ? 'bg-white text-primary shadow-md'
+              : 'text-slate-500 hover:text-slate-800'
+          "
+        >
+          <Coins class="w-4 h-4" />
+          Setoran Tunai
+        </button>
+        <button
+          @click="handleTabChange('midtrans')"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-extrabold transition-all duration-300"
+          :class="
+            activeTab === 'midtrans'
+              ? 'bg-white text-primary shadow-md'
+              : 'text-slate-500 hover:text-slate-800'
+          "
+        >
+          <CreditCard class="w-4 h-4" />
+          Transfer Bank
+        </button>
+        <button
+          @click="handleTabChange('daily_worker')"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-extrabold transition-all duration-300"
+          :class="
+            activeTab === 'daily_worker'
+              ? 'bg-white text-primary shadow-md'
+              : 'text-slate-500 hover:text-slate-800'
+          "
+        >
+          <User class="w-4 h-4" />
+          Penggajian Harian
+        </button>
+
+      </div>
+    </div>
+ 
+    <!-- Daily Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 p-5 rounded-2xl flex items-center justify-between shadow-sm">
+        <div>
+          <p class="text-sm font-bold text-emerald-600 tracking-wide uppercase">Tunai Disetujui (Hari Ini)</p>
+          <p class="text-3xl font-black text-emerald-900 mt-1">{{ formatCurrency(dailySummary.total_cash_sales) }}</p>
+        </div>
+        <div class="w-14 h-14 bg-emerald-200/50 rounded-full flex items-center justify-center">
+          <Coins class="w-7 h-7 text-emerald-700" />
+        </div>
+      </div>
+      
+      <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 p-5 rounded-2xl flex items-center justify-between shadow-sm">
+        <div>
+          <p class="text-sm font-bold text-blue-600 tracking-wide uppercase">Transfer Disetujui (Hari Ini)</p>
+          <p class="text-3xl font-black text-blue-900 mt-1">{{ formatCurrency(dailySummary.total_transfer_sales) }}</p>
+        </div>
+        <div class="w-14 h-14 bg-blue-200/50 rounded-full flex items-center justify-center">
+          <CreditCard class="w-7 h-7 text-blue-700" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Cashier Barcode Station (Premium Panel) -->
+    <div
+      class="bg-gradient-to-r from-slate-900 to-blue-950 p-6 rounded-[2.5rem] shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 border border-slate-800 animate-in slide-in-from-top duration-500"
+    >
+      <!-- Decoration BG -->
+      <div
+        class="absolute -right-10 -top-10 w-40 h-40 bg-primary/20 rounded-full blur-3xl pointer-events-none"
+      ></div>
+      <div
+        class="absolute -left-10 -bottom-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"
+      ></div>
+ 
+      <div class="flex items-center gap-4 relative z-10 text-center md:text-left">
+        <div
+          class="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-white border border-white/10 shadow-lg shrink-0"
+        >
+          <ScanBarcode class="w-7 h-7 text-white animate-pulse" />
+        </div>
+        <div>
+          <h2 class="text-base font-black text-white leading-tight">Barcode Station Kasir</h2>
+          <p class="text-[11px] text-slate-400 mt-1 font-semibold">
+            Hubungkan USB Barcode Scanner, lalu arahkan laser to nota transaksi.
+          </p>
+        </div>
+      </div>
+ 
+      <!-- Scanner Input Box -->
+      <div class="flex items-center gap-3 w-full md:max-w-md relative z-10">
+        <div class="relative flex-1">
+          <ScanBarcode class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <input
+            v-model="barcodeInput"
+            @keydown.enter="handleBarcodeScan"
+            type="text"
+            placeholder="Arahkan laser scanner / ketik No. Nota disini..."
+            class="w-full bg-white/10 hover:bg-white/15 focus:bg-white text-white focus:text-slate-900 border border-white/15 focus:border-white rounded-2xl py-3.5 pl-12 pr-4 text-sm font-bold tracking-wider placeholder:text-slate-400 placeholder:font-medium focus:outline-none focus:ring-4 focus:ring-primary/20 transition-all"
+          />
+        </div>
+        <button
+          @click="handleBarcodeScan"
+          class="bg-primary hover:bg-primary/90 text-white font-black px-6 py-3.5 rounded-2xl text-xs transition-all active:scale-95 shadow-xl shadow-primary/20 shrink-0"
+        >
+          VERIFIKASI
+        </button>
+      </div>
+    </div>
+ 
+    <!-- Filters -->
+    <div
+      class="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+    >
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 flex-1">
+        <!-- Text Search -->
+        <div class="relative flex-1 max-w-md">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-slate-400">
+            <Search class="w-4.5 h-4.5" />
+          </span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Cari Salesman, Toko, atau No Nota..."
+            class="w-full bg-slate-50 border border-slate-200/80 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-slate-400"
+          />
+        </div>
+
+        <!-- Role Filter -->
+        <div class="relative min-w-[170px]">
+          <select
+            v-model="filterRole"
+            class="w-full bg-slate-50 border border-slate-200/80 rounded-2xl py-3.5 pl-4 pr-10 text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all appearance-none cursor-pointer"
+          >
+            <option value="all">Semua Tipe Petugas</option>
+            <option value="sales">Sales (Motoris)</option>
+            <option value="driver">Driver (Delivery)</option>
+          </select>
+          <span
+            class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2.5"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </span>
+        </div>
+
+        <!-- Status Filter -->
+        <div class="relative min-w-[170px]">
+          <select
+            v-model="filterStatus"
+            class="w-full bg-slate-50 border border-slate-200/80 rounded-2xl py-3.5 pl-4 pr-10 text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all appearance-none cursor-pointer"
+          >
+            <option value="all">Semua Status</option>
+            <option value="pending">Menunggu Verifikasi</option>
+            <option value="success">Diterima / Lunas</option>
+            <option value="rejected">Ditolak / Gagal</option>
+          </select>
+          <span
+            class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2.5"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </span>
+        </div>
+      </div>
+
+      <div
+        class="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0 mt-2 lg:mt-0"
+      >
+        <span
+          >Menampilkan
+          {{ activeTab === 'cash' ? filteredCashList().length : filteredMidtransList().length }}
+          Data</span
+        >
+      </div>
+    </div>
+
+    <!-- Content Grid -->
+    <div v-if="isLoading" class="py-20 flex items-center justify-center">
+      <span
+        class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"
+      ></span>
+    </div>
+
+    <div v-else>
+      <!-- TAB 1: CASH APPROVAL -->
+      <div v-if="activeTab === 'cash'" class="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+        
+        <!-- Kolom Kiri: Tabel Transaksi -->
+        <div class="xl:col-span-9 space-y-6">
+          <div
+            v-if="filteredCashList().length === 0"
+            class="bg-white rounded-3xl border border-slate-200/60 p-16 text-center text-slate-400 shadow-[0_4px_20px_rgba(0,0,0,0.02)]"
+          >
+            <Coins class="w-16 h-16 mx-auto mb-4 text-slate-300 opacity-50" />
+            <h3 class="text-lg font-bold text-slate-700">Semua Setoran Tunai Selesai</h3>
+            <p class="text-sm text-slate-500 mt-1">
+              Belum ada salesman yang melakukan serah terima tunai baru.
+            </p>
+          </div>
+
+        <div
+          v-else
+          class="bg-white rounded-3xl border border-slate-200/60 shadow-[0_4px_25px_rgba(0,0,0,0.03)] overflow-hidden"
+        >
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr
+                  class="bg-slate-50 uppercase text-[10px] font-extrabold text-slate-400 tracking-[0.12em] border-b border-slate-100"
+                >
+                  <th class="px-6 py-4.5">Salesman / Petugas</th>
+                  <th class="px-6 py-4.5">No. Nota / Invoice</th>
+                  <th class="px-6 py-4.5">Toko / Customer</th>
+                  <th class="px-6 py-4.5">Waktu Setor</th>
+                  <th class="px-6 py-4.5">Jumlah Setoran</th>
+                  <th class="px-6 py-4.5">Catatan</th>
+                  <th class="px-6 py-4.5">Lampiran</th>
+                  <th class="px-6 py-4.5 text-center">Status / Aksi</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr
+                  v-for="p in filteredCashList()"
+                  :key="p.id"
+                  class="group hover:bg-slate-50/50 transition-colors"
+                >
+                  <!-- 1. Salesman Info -->
+                  <td class="px-6 py-4">
+                    <div class="flex items-center gap-3">
+                      <div
+                        class="h-9 w-9 rounded-xl bg-primary/10 text-primary font-black flex items-center justify-center text-xs shadow-inner"
+                      >
+                        {{ getInitials(p.employee?.first_name, p.employee?.last_name) }}
+                      </div>
+                      <div>
+                        <p class="text-xs font-bold text-slate-800">
+                          {{ p.employee?.first_name }} {{ p.employee?.last_name || '' }}
+                        </p>
+                        <span
+                          :class="[
+                            p.sales_order
+                              ? 'bg-indigo-500/10 text-indigo-700 border-indigo-200/30'
+                              : p.sales_transaction
+                                ? 'bg-sky-500/10 text-sky-700 border-sky-200/30'
+                                : 'bg-slate-500/10 text-slate-700 border-slate-200/30',
+                            'text-[9px] font-black px-2 py-0.5 rounded border uppercase tracking-wider mt-1 inline-block',
+                          ]"
+                        >
+                          {{
+                            p.sales_order
+                              ? 'Driver (Delivery)'
+                              : p.sales_transaction
+                                ? 'Sales (Motoris)'
+                                : 'Manual'
+                          }}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- 2. Receipt No -->
+                  <td class="px-6 py-4">
+                    <span class="font-extrabold text-slate-900 text-xs">{{
+                      p.sales_transaction?.receipt_no || p.sales_order?.so_number || 'LEGACY_SO'
+                    }}</span>
+                  </td>
+
+                  <!-- 3. Store / Customer -->
+                  <td class="px-6 py-4">
+                    <div class="font-bold text-slate-700 text-xs">{{
+                      p.sales_order?.store?.name || p.sales_transaction?.store?.name || '-'
+                    }}</div>
+                    <div v-if="p.sales_order?.employee" class="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[150px]" :title="'Sales: ' + p.sales_order.employee.first_name + ' ' + (p.sales_order.employee.last_name || '')">
+                      Sales: {{ p.sales_order.employee.first_name }} {{ p.sales_order.employee.last_name || '' }}
+                    </div>
+                    <div v-else-if="p.sales_transaction?.employee" class="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[150px]" :title="'Sales: ' + p.sales_transaction.employee.first_name + ' ' + (p.sales_transaction.employee.last_name || '')">
+                      Sales: {{ p.sales_transaction.employee.first_name }} {{ p.sales_transaction.employee.last_name || '' }}
+                    </div>
+                  </td>
+
+                  <!-- 4. Waktu Setor -->
+                  <td class="px-6 py-4 text-xs font-semibold text-slate-400">
+                    {{ formatDateTime(p.payment_date) }}
+                  </td>
+
+                  <!-- 5. Amount -->
+                  <td class="px-6 py-4">
+                    <p class="text-xs font-black text-slate-800">
+                      {{ formatCurrency(p.amount) }}
+                    </p>
+                    <span
+                      :class="[
+                        p.payment_method === 'CASH'
+                          ? 'bg-emerald-500/10 text-emerald-700 border-emerald-200/30'
+                          : 'bg-indigo-500/10 text-indigo-700 border-indigo-200/30',
+                        'text-[9px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider mt-1 inline-block',
+                      ]"
+                    >
+                      {{ p.payment_method === 'CASH' ? 'Tunai' : 'Transfer' }}
+                    </span>
+                  </td>
+
+                  <!-- 6. Catatan -->
+                  <td
+                    class="px-6 py-4 text-xs font-medium text-slate-500 italic max-w-[150px] truncate"
+                    :title="p.notes"
+                  >
+                    {{ p.notes || '-' }}
+                  </td>
+
+                  <!-- 7. Lampiran (View Invoice) -->
+                  <td class="px-6 py-4">
+                    <div class="flex flex-col gap-1.5">
+                      <button
+                        @click="openInvoiceModal(p)"
+                        class="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-primary bg-primary/5 hover:bg-primary/10 border border-primary/10 transition-all duration-200 active:scale-95 w-full"
+                      >
+                        <FileText class="w-3.5 h-3.5" />
+                        <span>Faktur</span>
+                      </button>
+                      <button
+                        v-if="p.transfer_proof_url"
+                        @click="
+                          openPreviewModal(
+                            p.transfer_proof_url,
+                            'Bukti Transfer',
+                            p.sales_transaction?.receipt_no || p.sales_order?.so_number || '',
+                          )
+                        "
+                        class="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 transition-all duration-200 active:scale-95 w-full text-center"
+                      >
+                        <ExternalLink class="w-3 h-3" />
+                        <span>Lihat Bukti Transfer</span>
+                      </button>
+                    </div>
+                  </td>
+
+                  <!-- 8. Status / Action -->
+                  <td class="px-6 py-4 text-center">
+                    <div class="flex items-center justify-center gap-2">
+                      <template v-if="p.payment_status === 'PENDING'">
+                        <div v-if="p.sales_transaction && !['VERIFIED', 'APPROVED'].includes(p.sales_transaction.status)" class="flex flex-col items-center justify-center">
+                          <span class="bg-amber-500/10 text-amber-700 border border-amber-200/50 text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-wider text-center leading-tight">
+                            Menunggu<br/>Admin Nota
+                          </span>
+                        </div>
+                        <template v-else>
+                          <button
+                            @click="triggerConfirm('approve', p.id)"
+                            :disabled="isActionLoading !== null || isConfirmLoading"
+                            class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl p-2 text-xs font-black transition-all flex items-center justify-center shadow-lg shadow-emerald-500/20 disabled:opacity-50 active:scale-95"
+                            title="Setujui Setoran"
+                          >
+                            <Check class="w-4 h-4" />
+                          </button>
+                          <button
+                            @click="triggerConfirm('reject', p.id)"
+                            :disabled="isActionLoading !== null || isConfirmLoading"
+                            class="bg-rose-500 hover:bg-rose-600 text-white rounded-xl p-2 text-xs font-black transition-all flex items-center justify-center shadow-lg shadow-rose-500/20 disabled:opacity-50 active:scale-95"
+                            title="Tolak Setoran"
+                          >
+                            <X class="w-4 h-4" />
+                          </button>
+                          <button
+                            v-if="p.payment_method === 'CASH' || p.payment_method === 'TUNAI'"
+                            @click="triggerConfirm('discrepancy', p.id)"
+                            :disabled="isActionLoading !== null || isConfirmLoading"
+                            class="bg-amber-500 hover:bg-amber-600 text-white rounded-xl p-2 text-xs font-black transition-all flex items-center justify-center shadow-lg shadow-amber-500/20 disabled:opacity-50 active:scale-95"
+                            title="Lapor Selisih Setoran"
+                          >
+                            <AlertTriangle class="w-4 h-4" />
+                          </button>
+                        </template>
+                      </template>
+                      <template v-else>
+                        <span
+                          :class="[
+                            p.payment_status === 'SUCCESS' || p.payment_status === 'PAID'
+                              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-200/30'
+                              : 'bg-rose-500/10 text-red-700 border-rose-200/30',
+                            'px-2.5 py-1 rounded-lg text-[9px] font-black tracking-wider uppercase border',
+                          ]"
+                        >
+                          {{ p.payment_status === 'SUCCESS' ? 'Diterima' : 'Ditolak' }}
+                        </span>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div> <!-- Close xl:col-span-9 -->
+
+        <!-- Kolom Kanan: Panel Rekonsiliasi LPS & Surat Jalan -->
+        <div class="xl:col-span-3 sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto space-y-6 pb-8 lps-right-panel-scroll">
+          
+          <LPSReconciliationTab 
+            @lps-loaded="handleLpsLoaded" 
+            @lps-cleared="handleLpsCleared" 
+            @lps-approved="handleLpsApproved"
+            @preview-lps="handleLpsPreview"
+          />
+
+          <!-- Rekonsiliasi Surat Jalan -->
+          <DeliveryReconciliationTab 
+            @delivery-loaded="handleDeliveryLoaded"
+            @delivery-cleared="handleDeliveryCleared"
+            @delivery-approved="handleLpsApproved" 
+          />
+        </div>
+      </div> <!-- Close activeTab === 'cash' -->
+
+      <!-- TAB 2: BANK TRANSFER APPROVAL -->
+      <div v-if="activeTab === 'midtrans'">
+        <div
+          v-if="filteredMidtransList().length === 0"
+          class="bg-white rounded-3xl border border-slate-200/60 p-16 text-center text-slate-400 shadow-[0_4px_20px_rgba(0,0,0,0.02)]"
+        >
+          <CreditCard class="w-16 h-16 mx-auto mb-4 text-slate-300 opacity-50" />
+          <h3 class="text-lg font-bold text-slate-700">Tidak Ada Transaksi Transfer Bank</h3>
+          <p class="text-sm text-slate-500 mt-1">
+            Belum ada salesman yang melakukan serah terima transfer bank baru.
+          </p>
+        </div>
+ 
+        <div
+          v-else
+          class="bg-white rounded-3xl border border-slate-200/60 shadow-[0_4px_25px_rgba(0,0,0,0.03)] overflow-hidden"
+        >
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr
+                  class="bg-slate-50 uppercase text-[10px] font-extrabold text-slate-400 tracking-[0.12em] border-b border-slate-100"
+                >
+                  <th class="px-6 py-4.5">Salesman / Petugas</th>
+                  <th class="px-6 py-4.5">No. Nota / Invoice</th>
+                  <th class="px-6 py-4.5">Toko / Customer</th>
+                  <th class="px-6 py-4.5">Waktu Transfer</th>
+                  <th class="px-6 py-4.5">Jumlah Transfer</th>
+                  <th class="px-6 py-4.5">Catatan</th>
+                  <th class="px-6 py-4.5">Lampiran</th>
+                  <th class="px-6 py-4.5 text-center">Status / Aksi</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr
+                  v-for="m in filteredMidtransList()"
+                  :key="m.id"
+                  class="group hover:bg-slate-50/50 transition-colors"
+                >
+                  <!-- 1. Salesman Info -->
+                  <td class="px-6 py-4">
+                    <div class="flex items-center gap-3">
+                      <div
+                        class="h-9 w-9 rounded-xl bg-primary/10 text-primary font-black flex items-center justify-center text-xs shadow-inner"
+                      >
+                        {{ getInitials(m.employee?.first_name, m.employee?.last_name) }}
+                      </div>
+                      <div>
+                        <p class="text-xs font-bold text-slate-800">
+                          {{ m.employee?.first_name }} {{ m.employee?.last_name || '' }}
+                        </p>
+                        <span
+                          :class="[
+                            m.sales_order
+                              ? 'bg-indigo-500/10 text-indigo-700 border-indigo-200/30'
+                              : m.sales_transaction
+                                ? 'bg-sky-500/10 text-sky-700 border-sky-200/30'
+                                : 'bg-slate-500/10 text-slate-700 border-slate-200/30',
+                            'text-[9px] font-black px-2 py-0.5 rounded border uppercase tracking-wider mt-1 inline-block',
+                          ]"
+                        >
+                          {{
+                            m.sales_order
+                              ? 'Driver (Delivery)'
+                              : m.sales_transaction
+                                ? 'Sales (Motoris)'
+                                : 'Manual'
+                          }}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+ 
+                  <!-- 2. Receipt No -->
+                  <td class="px-6 py-4">
+                    <span class="font-extrabold text-slate-900 text-xs">{{
+                      m.sales_transaction?.receipt_no || m.sales_order?.so_number || 'LEGACY_SO'
+                    }}</span>
+                  </td>
+ 
+                  <!-- 3. Store / Customer -->
+                  <td class="px-6 py-4">
+                    <div class="font-bold text-slate-700 text-xs">{{
+                      m.sales_order?.store?.name || m.sales_transaction?.store?.name || '-'
+                    }}</div>
+                    <div v-if="m.sales_order?.employee" class="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[150px]" :title="'Sales: ' + m.sales_order.employee.first_name + ' ' + (m.sales_order.employee.last_name || '')">
+                      Sales: {{ m.sales_order.employee.first_name }} {{ m.sales_order.employee.last_name || '' }}
+                    </div>
+                    <div v-else-if="m.sales_transaction?.employee" class="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[150px]" :title="'Sales: ' + m.sales_transaction.employee.first_name + ' ' + (m.sales_transaction.employee.last_name || '')">
+                      Sales: {{ m.sales_transaction.employee.first_name }} {{ m.sales_transaction.employee.last_name || '' }}
+                    </div>
+                  </td>
+ 
+                  <!-- 4. Waktu Transfer -->
+                  <td class="px-6 py-4 text-xs font-semibold text-slate-400">
+                    {{ formatDateTime(m.payment_date) }}
+                  </td>
+ 
+                  <!-- 5. Amount -->
+                  <td class="px-6 py-4">
+                    <p class="text-xs font-black text-slate-800">
+                      {{ formatCurrency(m.amount) }}
+                    </p>
+                    <span
+                      class="bg-indigo-500/10 text-indigo-700 text-[9px] font-black px-1.5 py-0.5 rounded border border-indigo-200/30 uppercase tracking-wider mt-1 inline-block"
+                    >
+                      {{ formatPaymentMethod(m) }}
+                    </span>
+                  </td>
+ 
+                  <!-- 6. Catatan -->
+                  <td
+                    class="px-6 py-4 text-xs font-medium text-slate-500 italic max-w-[150px] truncate"
+                    :title="m.notes"
+                  >
+                    {{ m.notes || '-' }}
+                  </td>
+ 
+                  <!-- 7. Lampiran (View Invoice & Bukti) -->
+                  <td class="px-6 py-4">
+                    <div class="flex flex-col gap-1.5">
+                      <button
+                        @click="openInvoiceModal(m)"
+                        class="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-primary bg-primary/5 hover:bg-primary/10 border border-primary/10 transition-all duration-200 active:scale-95 w-full"
+                      >
+                        <FileText class="w-3.5 h-3.5" />
+                        <span>Faktur</span>
+                      </button>
+                      <button
+                        v-if="m.transfer_proof_url"
+                        @click="
+                          openPreviewModal(
+                            m.transfer_proof_url,
+                            'Bukti Transfer',
+                            m.sales_transaction?.receipt_no || m.sales_order?.so_number || '',
+                          )
+                        "
+                        class="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 transition-all duration-200 active:scale-95 w-full text-center"
+                      >
+                        <ExternalLink class="w-3.5 h-3.5" />
+                        <span>Lihat Bukti Transfer</span>
+                      </button>
+                    </div>
+                  </td>
+ 
+                  <!-- 8. Status / Action -->
+                  <td class="px-6 py-4 text-center">
+                    <div class="flex items-center justify-center gap-2">
+                      <template v-if="m.payment_status === 'PENDING'">
+                        <div v-if="m.sales_transaction && !['VERIFIED', 'APPROVED'].includes(m.sales_transaction.status)" class="flex flex-col items-center justify-center">
+                          <span class="bg-amber-500/10 text-amber-700 border border-amber-200/50 text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-wider text-center leading-tight">
+                            Menunggu<br/>Admin Nota
+                          </span>
+                        </div>
+                        <template v-else>
+                          <button
+                            @click="triggerConfirm('approve', m.id)"
+                            class="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-all duration-200 active:scale-90"
+                            title="Setujui Setoran"
+                          >
+                            <Check class="w-4.5 h-4.5" />
+                          </button>
+                          <button
+                            @click="triggerConfirm('reject', m.id)"
+                            class="flex items-center justify-center h-8 w-8 rounded-lg bg-red-500 hover:bg-red-600 text-white shadow-md transition-all duration-200 active:scale-90"
+                            title="Tolak Setoran"
+                          >
+                            <X class="w-4.5 h-4.5" />
+                          </button>
+                        </template>
+                      </template>
+                      <template v-else>
+                        <span
+                          :class="[
+                            m.payment_status === 'SUCCESS' || m.payment_status === 'PAID'
+                              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-200/30'
+                              : 'bg-red-500/10 text-red-700 border-red-200/30',
+                            'text-[9px] font-black px-2 py-1 rounded border uppercase tracking-wider',
+                          ]"
+                        >
+                          {{ m.payment_status === 'SUCCESS' || m.payment_status === 'PAID' ? 'Sukses' : 'Ditolak/Gagal' }}
+                        </span>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    <!-- Pagination Controls -->
+    <div
+      v-if="totalPages > 1"
+      class="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white px-6 py-4 rounded-3xl border border-slate-200/60 shadow-[0_4px_25px_rgba(0,0,0,0.03)] mt-6"
+    >
+      <div class="text-sm font-semibold text-slate-500">
+        Menampilkan
+        <span class="font-black text-slate-900">{{ (currentPage - 1) * limit + 1 }}</span> sampai
+        <span class="font-black text-slate-900">{{
+          Math.min(currentPage * limit, totalItems)
+        }}</span>
+        dari <span class="font-black text-slate-900">{{ totalItems }}</span> entri
+      </div>
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <button
+          @click="changePage(currentPage - 1)"
+          :disabled="currentPage === 1"
+          class="p-2 rounded-xl bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <ChevronRight class="w-5 h-5 rotate-180" />
+        </button>
+
+        <div class="flex flex-wrap items-center justify-center gap-1">
+          <template v-for="(page, index) in displayedPages" :key="index">
+            <button
+              v-if="page !== '...'"
+              @click="changePage(Number(page))"
+              :class="[
+                page === currentPage
+                  ? 'bg-primary text-white font-black shadow-lg shadow-primary/20'
+                  : 'bg-slate-50 text-slate-600 font-bold hover:bg-slate-100',
+                'w-9 h-9 rounded-xl text-sm flex items-center justify-center transition-all',
+              ]"
+            >
+              {{ page }}
+            </button>
+            <div
+              v-else
+              class="w-9 h-9 flex items-center justify-center text-slate-400 font-bold tracking-widest"
+            >
+              ...
+            </div>
+          </template>
+        </div>
+
+        <button
+          @click="changePage(currentPage + 1)"
+          :disabled="currentPage === totalPages"
+          class="p-2 rounded-xl bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <ChevronRight class="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+    </div>
+    
+    <!-- Daily Worker Salaries Tab -->
+    <div v-if="activeTab === 'daily_worker'">
+      <div v-if="dailyWorkerSalaries.length === 0 && !isLoading" class="py-20 text-center">
+        <div class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-slate-100">
+          <Check class="w-10 h-10 text-slate-300" />
+        </div>
+        <h3 class="text-xl font-black text-slate-900 mb-1">Semua Gaji Telah Lunas</h3>
+        <p class="text-slate-500 font-medium">Tidak ada tagihan gaji pekerja harian yang menunggu persetujuan.</p>
+      </div>
+
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div v-for="salary in dailyWorkerSalaries" :key="salary.id" class="bg-white border-2 border-slate-100 rounded-[2rem] p-6 shadow-sm hover:shadow-xl transition-all">
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-yellow-50 text-yellow-600 border border-yellow-200">Menunggu Kasir</span>
+            <span class="text-[10px] font-bold text-slate-400 font-mono">{{ new Date(salary.date).toLocaleDateString('id-ID') }}</span>
+          </div>
+          
+          <div class="flex items-center gap-4 mb-5">
+            <div class="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
+              <User class="w-6 h-6 text-slate-400" />
+            </div>
+            <div>
+              <h4 class="font-black text-slate-900 text-lg leading-tight">{{ salary.daily_worker?.name }}</h4>
+              <p class="text-xs font-bold text-slate-500 mt-1">{{ salary.daily_worker?.type }}</p>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 rounded-2xl p-4 mb-5 border border-slate-100">
+            <p class="text-xs font-medium text-slate-600 leading-relaxed mb-3">{{ salary.notes }}</p>
+            <div v-if="salary.proof_url" class="mb-4">
+              <button @click="openPreviewModal(getFullImageUrl(salary.proof_url), 'Bukti Hitung', salary.daily_worker?.name)" 
+                      class="w-full flex items-center justify-center gap-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-xl transition-colors">
+                <ExternalLink class="w-4 h-4" /> Lihat Bukti Foto Hitungan
+              </button>
+            </div>
+            <div class="flex flex-col gap-2">
+              <span class="text-xs font-black text-slate-400 uppercase tracking-widest">Input Nominal Gaji (Rp)</span>
+              <input type="number" v-model="salary.inputAmount" class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-900 outline-none focus:border-primary transition-all" placeholder="Contoh: 150000" />
+            </div>
+          </div>
+
+          <button
+            @click="payDailyWorkerSalary(salary)"
+            :disabled="isActionLoading === `pay_salary_${salary.id}`"
+            class="w-full py-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-xl font-black transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <span v-if="isActionLoading === `pay_salary_${salary.id}`" class="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></span>
+            <template v-else>
+              <Check class="w-5 h-5" />
+              SETUJUI & BAYAR
+            </template>
+          </button>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- Invoice Preview Modal (iframe) -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showInvoiceModal && selectedPaymentDetail"
+          class="fixed inset-0 z-[999] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        >
+          <!-- Backdrop -->
+          <div
+            class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            @click="showInvoiceModal = false"
+          />
+
+          <!-- Modal Sheet -->
+          <div
+            class="relative z-10 w-full sm:max-w-4xl bg-white rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl flex flex-col"
+            style="height: 92vh"
+          >
+            <!-- Modal Header -->
+            <div
+              class="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white rounded-t-[2rem] shrink-0"
+            >
+              <div class="flex items-center gap-3">
+                <div
+                  class="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"
+                >
+                  <FileText class="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <h3 class="text-base font-black text-slate-900 leading-tight">
+                    Faktur Penjualan Resmi
+                  </h3>
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                    {{ getReceiptNo(selectedPaymentDetail) || 'Lampiran Setoran' }}
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <!-- Open in new tab -->
+                <button
+                  v-if="getInvoiceUrl(selectedPaymentDetail)"
+                  @click="openInvoiceNewTab(selectedPaymentDetail)"
+                  class="p-2.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-primary transition-colors"
+                  title="Buka di tab baru"
+                >
+                  <ExternalLink class="w-4 h-4" />
+                </button>
+                <button
+                  @click="showInvoiceModal = false"
+                  class="p-2.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-900 transition-colors"
+                >
+                  <X class="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Content Area: Split view if transfer proof exists -->
+            <div class="flex-1 overflow-hidden relative flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-slate-100">
+              <!-- Left Side: Invoice Preview -->
+              <div class="flex-1 h-full overflow-hidden relative">
+                <!-- Loading overlay -->
+                <div
+                  v-if="iframeLoading && getInvoiceUrl(selectedPaymentDetail)"
+                  class="absolute inset-0 flex flex-col items-center justify-center bg-white z-10 gap-3"
+                >
+                  <span
+                    class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"
+                  ></span>
+                  <p class="text-xs font-bold text-slate-400">Memuat faktur...</p>
+                </div>
+
+                <!-- Actual Invoice iframe -->
+                <iframe
+                  v-if="getInvoiceUrl(selectedPaymentDetail)"
+                  :src="getInvoiceUrl(selectedPaymentDetail)"
+                  class="w-full h-full border-0"
+                  @load="iframeLoading = false"
+                />
+
+                <!-- No receipt_no fallback (SalesOrder belum di-convert ke invoice) -->
+                <div
+                  v-else
+                  class="flex flex-col items-center justify-center h-full gap-4 text-center p-8"
+                >
+                  <div class="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center">
+                    <FileText class="w-8 h-8 text-amber-400" />
+                  </div>
+                  <div>
+                    <p class="font-black text-slate-700 text-base">Faktur Belum Tersedia</p>
+                    <p class="text-sm text-slate-400 mt-1 max-w-xs">
+                      SO
+                      <span class="font-bold text-slate-600">{{
+                        selectedPaymentDetail?.sales_order?.so_number
+                      }}</span>
+                      belum dikonversi menjadi Faktur Penjualan. Minta Admin Nota untuk menerbitkan
+                      faktur terlebih dahulu.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right Side: Bukti Transfer -->
+              <div
+                v-if="selectedPaymentDetail?.transfer_proof_url"
+                class="w-full md:w-80 h-full overflow-y-auto bg-slate-50 flex flex-col shrink-0"
+              >
+                <div class="p-4 border-b border-slate-100 bg-white sticky top-0 z-10 shrink-0 flex items-center justify-between">
+                  <div>
+                    <h4 class="text-xs font-black text-slate-800 uppercase tracking-wider">
+                      Bukti Transfer
+                    </h4>
+                    <p class="text-[9px] text-slate-400 font-extrabold mt-0.5 uppercase tracking-wider">
+                      Satu Pintu Perusahaan
+                    </p>
+                  </div>
+                  <button
+                    @click="
+                      openPreviewModal(
+                        selectedPaymentDetail.transfer_proof_url,
+                        'Bukti Transfer',
+                        selectedPaymentDetail.sales_transaction?.receipt_no ||
+                          selectedPaymentDetail.sales_order?.so_number ||
+                          '',
+                      )
+                    "
+                    class="p-1.5 bg-slate-100 rounded-lg text-slate-400 hover:text-primary transition-colors"
+                    title="Perbesar gambar"
+                  >
+                    <ExternalLink class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div class="p-4 flex-1 flex items-start justify-center">
+                  <div
+                    @click="
+                      openPreviewModal(
+                        selectedPaymentDetail.transfer_proof_url,
+                        'Bukti Transfer',
+                        selectedPaymentDetail.sales_transaction?.receipt_no ||
+                          selectedPaymentDetail.sales_order?.so_number ||
+                          '',
+                      )
+                    "
+                    class="rounded-2xl overflow-hidden shadow-md border border-slate-200/50 bg-white max-w-full cursor-zoom-in hover:opacity-90 transition-opacity"
+                    title="Klik untuk memperbesar"
+                  >
+                    <img
+                      :src="selectedPaymentDetail.transfer_proof_url"
+                      alt="Bukti Transfer"
+                      class="max-w-full max-h-[45vh] md:max-h-[60vh] object-contain mx-auto"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div
+              class="px-6 py-4 border-t border-slate-100 bg-white flex gap-3 shrink-0 rounded-b-[2rem]"
+            >
+              <button
+                @click="showInvoiceModal = false"
+                class="flex-1 py-3.5 rounded-2xl border border-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                TUTUP
+              </button>
+              <button
+                v-if="selectedPaymentDetail?.payment_status === 'PENDING'"
+                @click="handleApproveFromModal(selectedPaymentDetail.id)"
+                :disabled="isActionLoading !== null || isConfirmLoading"
+                class="flex-1 py-3.5 rounded-2xl bg-primary text-white text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-50 transition-all hover:bg-primary/90"
+              >
+                <Check class="w-4 h-4" />
+                SETUJUI SETORAN
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- LPS Preview Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showLpsModal && lpsModalUrl"
+          class="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        >
+          <!-- Backdrop -->
+          <div
+            class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm"
+            @click="showLpsModal = false"
+          />
+
+          <!-- Modal Sheet -->
+          <div
+            class="relative z-10 w-full sm:max-w-6xl bg-white rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl flex flex-col"
+            style="height: 92vh"
+          >
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white rounded-t-[2rem] shrink-0">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
+                  <FileText class="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 class="text-base font-black text-slate-900 leading-tight">
+                    Preview Dokumen LPS
+                  </h3>
+                  <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                    Lembar Penyerahan Salesman
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  @click="showLpsModal = false"
+                  class="p-2.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-900 transition-colors"
+                >
+                  <X class="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Content Area: Iframe -->
+            <div class="flex-1 overflow-hidden relative bg-slate-50">
+              <iframe
+                :src="lpsModalUrl"
+                class="w-full h-full border-0"
+                title="LPS Preview"
+              />
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Zoomable Image Preview Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showPreviewModal"
+          class="fixed inset-0 z-[1010] flex items-center justify-center p-4"
+        >
+          <!-- Backdrop -->
+          <div
+            class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            @click="closePreviewModal"
+          />
+
+          <!-- Modal Box -->
+          <div
+            class="relative z-10 w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden flex flex-col shadow-2xl"
+            style="height: 85vh"
+          >
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 text-white shrink-0">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                  <CreditCard class="w-4 h-4 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 class="text-sm font-black leading-tight">{{ previewModalTitle }}</h3>
+                  <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
+                    {{ previewModalSubtitle || 'Preview Dokumen' }}
+                  </p>
+                </div>
+              </div>
+              
+              <!-- Toolbar controls -->
+              <div class="flex items-center gap-1 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+                <button
+                  @click="zoomIn"
+                  class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  title="Perbesar"
+                >
+                  <ZoomIn class="w-4 h-4" />
+                </button>
+                <button
+                  @click="zoomOut"
+                  class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  title="Perkecil"
+                >
+                  <ZoomOut class="w-4 h-4" />
+                </button>
+                <button
+                  @click="rotateImage"
+                  class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  title="Putar 90°"
+                >
+                  <RotateCw class="w-4 h-4" />
+                </button>
+                <button
+                  @click="resetZoom"
+                  class="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  title="Reset Tampilan"
+                >
+                  <RefreshCw class="w-4 h-4" />
+                </button>
+              </div>
+
+              <!-- Close Button -->
+              <button
+                @click="closePreviewModal"
+                class="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors"
+              >
+                <X class="w-5 h-5" />
+              </button>
+            </div>
+
+            <!-- Viewport for Image (supports dragging or centered display) -->
+            <div class="flex-1 overflow-hidden relative flex items-center justify-center p-6 bg-slate-950/40">
+              <!-- Scrollable or scalable container -->
+              <div 
+                class="transition-transform duration-300 ease-out select-none"
+                :style="{
+                  transform: `scale(${zoomScale}) rotate(${rotationDegrees}deg)`
+                }"
+              >
+                <img
+                  :src="previewImageUrl"
+                  alt="Bukti Transfer Zoomable"
+                  class="max-w-full max-h-[65vh] object-contain shadow-2xl rounded-lg pointer-events-none"
+                />
+              </div>
+            </div>
+
+            <!-- Footer (Status Info & Action Info) -->
+            <div class="px-6 py-4 bg-slate-950 border-t border-slate-800 text-xs text-slate-400 shrink-0 flex items-center justify-between font-bold">
+              <span>Gunakan tombol di atas untuk zoom, putar, atau reset tampilan.</span>
+              <button
+                @click="closePreviewModal"
+                class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white transition-colors text-[11px] font-black"
+              >
+                TUTUP PREVIEW
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Action Confirmation Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showConfirmModal"
+          class="fixed inset-0 z-[1000] flex items-center justify-center p-4"
+        >
+          <!-- Backdrop -->
+          <div
+            class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            @click="!isConfirmLoading && (showConfirmModal = false)"
+          />
+
+          <!-- Modal Content Box -->
+          <div
+            class="relative z-10 w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 border border-slate-100 flex flex-col items-center text-center"
+          >
+            <!-- Icon -->
+            <div
+              :class="[
+                confirmType === 'approve'
+                  ? 'bg-emerald-500/10 text-emerald-600'
+                  : confirmType === 'reject' ? 'bg-rose-500/10 text-rose-600' : 'bg-amber-500/10 text-amber-600',
+                'w-14 h-14 rounded-full flex items-center justify-center mb-4 shrink-0',
+              ]"
+            >
+              <Check v-if="confirmType === 'approve'" class="w-7 h-7" />
+              <X v-else-if="confirmType === 'reject'" class="w-7 h-7" />
+              <AlertTriangle v-else class="w-7 h-7" />
+            </div>
+
+            <!-- Title & Message -->
+            <h3 class="text-base font-black text-slate-900 leading-tight">
+              {{ confirmType === 'approve' ? 'Setujui Setoran Tunai?' : (confirmType === 'reject' ? 'Tolak Setoran Tunai?' : 'Laporkan Selisih Setoran?') }}
+            </h3>
+            <p class="text-xs text-slate-500 font-semibold leading-relaxed mt-2 max-w-[280px]">
+              {{
+                confirmType === 'approve'
+                  ? 'Apakah Anda yakin menyetujui setoran uang fisik ini? Saldo tagihan dan target omzet sales akan segera diperbarui.'
+                  : (confirmType === 'reject' ? 'Apakah Anda yakin menolak setoran uang fisik ini? Status pembayaran akan diset menjadi Gagal.' : 'Faktur ini akan dikembalikan ke status Menunggu Crosscheck. Admin Nota harus menyesuaikan tagihan ini terlebih dahulu.')
+              }}
+            </p>
+
+            <div v-if="confirmType === 'reject' || confirmType === 'discrepancy'" class="w-full mt-4 text-left">
+              <label class="block text-xs font-bold text-slate-700 mb-1">{{ confirmType === 'reject' ? 'Alasan Penolakan (Opsional)' : 'Catatan Selisih (Wajib)' }}</label>
+              <textarea
+                v-model="rejectionReason"
+                rows="3"
+                class="w-full border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                :placeholder="confirmType === 'reject' ? 'Contoh: Tulisan tidak jelas...' : 'Contoh: Uang fisik cuma ada Rp 8.500 karena retur...'"
+              ></textarea>
+            </div>
+
+            <!-- Buttons -->
+            <div class="flex gap-3 w-full mt-6">
+              <button
+                @click="showConfirmModal = false"
+                :disabled="isConfirmLoading"
+                class="flex-1 py-3 rounded-xl border border-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                BATAL
+              </button>
+              <button
+                @click="executeAction"
+                :disabled="isConfirmLoading"
+                :class="[
+                  confirmType === 'approve'
+                    ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
+                    : 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/20',
+                  'flex-1 py-3 text-white rounded-xl text-xs font-black shadow-lg transition-all flex items-center justify-center gap-1.5 disabled:opacity-50',
+                ]"
+              >
+                <span
+                  v-if="isConfirmLoading"
+                  class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+                ></span>
+                <template v-else>
+                  YA, {{ confirmType === 'approve' ? 'SETUJUI' : 'TOLAK' }}
+                </template>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+  </div>
+</template>
+
+<style scoped>
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Modal enter/leave transitions */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-active > div:last-child,
+.modal-leave-active > div:last-child {
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.modal-enter-from > div:last-child,
+.modal-leave-to > div:last-child {
+  transform: translateY(40px);
+}
+
+.lps-right-panel-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.lps-right-panel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lps-right-panel-scroll::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 20px;
+}
+.lps-right-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+</style>

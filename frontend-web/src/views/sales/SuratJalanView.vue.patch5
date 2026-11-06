@@ -1,0 +1,17 @@
+--- frontend-web/src/views/sales/SuratJalanView.vue
++++ frontend-web/src/views/sales/SuratJalanView.vue
+@@ -1149,6 +1149,15 @@
+                       </Button>
+                     </div>
+                   </div>
++
++                  <div v-if="hasDiscrepancy(item)" class="mt-2 bg-amber-50 rounded-xl p-3 border border-amber-200/60 flex items-start gap-2">
++                    <AlertTriangle class="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
++                    <div class="flex flex-col">
++                      <span class="text-[10px] font-black text-amber-800 uppercase tracking-wide">Dilaporkan Selisih oleh Kasir</span>
++                      <span class="text-xs font-medium text-amber-700 mt-0.5">{{ getDiscrepancyNote(item) }}</span>
++                    </div>
++                  </div>
+ 
+                   <div v-if="isReportingMode" class="mt-2 p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col gap-4">
+                     <div class="flex flex-col sm:flex-row gap-3 items-end">

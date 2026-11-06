@@ -1,0 +1,2 @@
+ALTER TABLE epkwt_requests ADD COLUMN IF NOT EXISTS probation_months INTEGER DEFAULT 0;
+

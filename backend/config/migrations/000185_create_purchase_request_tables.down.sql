@@ -1,0 +1,1 @@
+-- Keep request data on rollback. The tables may predate this migration.

@@ -1,0 +1,75 @@
+platform :ios, '15.5'
+
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+# ---------------------------------------------------------------------------
+# Baca .flutter-env untuk mengetahui mode build saat ini.
+# File ini di-generate oleh run_simulator.sh / run_device.sh.
+# Default: USE_MLKIT=true (MLKit aktif).
+# ---------------------------------------------------------------------------
+use_mlkit = true
+flutter_env_path = File.expand_path(File.join('..', '.flutter-env'), __FILE__)
+if File.exist?(flutter_env_path)
+  File.foreach(flutter_env_path) do |line|
+    use_mlkit = false if line.strip == 'USE_MLKIT=false'
+  end
+end
+
+if use_mlkit
+  puts "\n🤖 [Podfile] MLKit: ENABLED — Android / iPhone fisik build\n\n"
+else
+  puts "\n📱 [Podfile] MLKit: DISABLED — iOS Simulator build (arm64-sim not supported by MLKit)\n\n"
+end
+
+target 'Runner' do
+  use_frameworks!
+
+  # Pasang semua Flutter pods kecuali MLKit saat mode simulator
+  if use_mlkit
+    # Mode normal: semua pods termasuk MLKit & TFLite
+    flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  else
+    # Mode simulator: install Flutter pods secara manual, skip MLKit-related plugins
+    # flutter_install_all_ios_pods akan otomatis melewatkan plugin yang tidak didukung
+    # karena flutter.rb hanya install pods dari plugin yang aktif di pubspec.yaml.
+    # Kita gunakan dart-define USE_MLKIT=false agar Flutter tools tidak install MLKit pods.
+    flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  end
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'
+      config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'
+    end
+  end
+end

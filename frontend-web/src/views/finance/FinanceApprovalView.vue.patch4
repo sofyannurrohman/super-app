@@ -1,0 +1,10 @@
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -1166,6 +1166,7 @@
+ 
+           <!-- Rekonsiliasi Surat Jalan -->
+           <DeliveryReconciliationTab 
++            :suggested-cash="autoSumCash"
+             @delivery-loaded="handleDeliveryLoaded"
+             @delivery-cleared="handleDeliveryCleared"
+             @delivery-approved="handleLpsApproved" 

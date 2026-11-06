@@ -1,0 +1,19 @@
+DROP TABLE IF EXISTS payslip_items;
+DROP TABLE IF EXISTS payslips;
+DROP TABLE IF EXISTS payroll_runs;
+DROP TABLE IF EXISTS employee_salary_settings;
+DROP TABLE IF EXISTS payroll_components;
+DROP TABLE IF EXISTS leave_requests;
+DROP TABLE IF EXISTS leave_balances;
+DROP TABLE IF EXISTS leave_types;
+DROP TABLE IF EXISTS attendance_logs;
+DROP TABLE IF EXISTS employee_shifts;
+DROP TABLE IF EXISTS shifts;
+DROP TABLE IF EXISTS employees;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS job_positions;
+DROP TABLE IF EXISTS departments;
+DROP TABLE IF EXISTS branches;
+DROP TABLE IF EXISTS companies;
+
+DROP EXTENSION IF EXISTS "uuid-ossp";

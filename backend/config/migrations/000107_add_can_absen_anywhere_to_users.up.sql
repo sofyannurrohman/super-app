@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_absen_anywhere BOOLEAN DEFAULT false;
+

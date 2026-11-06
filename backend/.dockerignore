@@ -1,0 +1,27 @@
+.git/
+uploads/
+vendor/
+.github/
+.vscode/
+.env
+.env.*
+!.env.example
+
+# Compiled binaries and build artifacts
+bin/
+tmp/
+*.exe
+*.test
+api
+hris-backend
+tmp_server
+migrate
+branding_independent_migration
+bulk_geocode_gemini
+fix_anomalous_stores
+geocode_stores
+import_csv_stores
+compress_photos_linux
+*.log
+db_dump.txt
+

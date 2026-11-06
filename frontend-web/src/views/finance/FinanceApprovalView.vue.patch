@@ -1,0 +1,22 @@
+--- frontend-web/src/views/finance/FinanceApprovalView.vue
++++ frontend-web/src/views/finance/FinanceApprovalView.vue
+@@ -388,9 +388,18 @@
+ 
+ const activeDeliveryContext = ref<any>(null)
++const invoiceCashInputs = ref<Record<string, number>>({})
+ 
+ function handleDeliveryLoaded(data: any) {
+   activeDeliveryContext.value = data
++  invoiceCashInputs.value = {}
++  const relatedPayments = pendingPayments.value.filter((p: any) =>
++    data.payment_ids?.includes(p.id) || p.sales_order?.delivery_batch_id === data.batch_id
++  )
++  relatedPayments.forEach((p: any) => {
++    invoiceCashInputs.value[p.id] = p.amount
++  })
+ }
+ 
+ function handleDeliveryCleared() {
+   activeDeliveryContext.value = null
++  invoiceCashInputs.value = {}
+ }

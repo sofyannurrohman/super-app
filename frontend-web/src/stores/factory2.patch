@@ -1,0 +1,17 @@
+--- frontend-web/src/stores/factory.ts
++++ frontend-web/src/stores/factory.ts
+@@ -198,6 +198,14 @@
+         this.loading = false
+       }
+     },
++    async mutateRawMaterial(factoryId: string, data: any) {
++      try {
++        await factoryApi.mutateRawMaterial(factoryId, data)
++        await this.fetchRawMaterialStock(factoryId)
++      } catch (err: any) {
++        throw err.response?.data?.error || 'Failed to mutate raw material'
++      }
++    },
+     async fetchLowStockAlerts() {
+       this.loading = true
+       try {

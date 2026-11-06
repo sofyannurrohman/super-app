@@ -1,0 +1,7 @@
+ALTER TABLE products DROP COLUMN IF EXISTS category;
+ALTER TABLE products DROP COLUMN IF EXISTS brand;
+ALTER TABLE products DROP COLUMN IF EXISTS weight_unit;
+ALTER TABLE products DROP COLUMN IF EXISTS cost_price;
+ALTER TABLE products DROP COLUMN IF EXISTS selling_price;
+ALTER TABLE products DROP COLUMN IF EXISTS specs;
+ALTER TABLE products DROP COLUMN IF EXISTS description;

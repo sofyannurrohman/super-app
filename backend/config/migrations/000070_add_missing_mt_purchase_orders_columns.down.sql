@@ -1,0 +1,11 @@
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS po_schedule;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS invoice_photo_url;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS receipt_photo_url;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS billing_schedule;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS return_schedule;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS event_schedule;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS spg_schedule;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS stock_update_log;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS promo_update_log;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS supermarket_name;
+ALTER TABLE mt_purchase_orders DROP COLUMN IF EXISTS md_name;

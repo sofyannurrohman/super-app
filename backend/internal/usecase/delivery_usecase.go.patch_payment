@@ -1,0 +1,24 @@
+--- internal/usecase/delivery_usecase.go
++++ internal/usecase/delivery_usecase.go
+@@ -2643,15 +2643,19 @@
+ 				if paidNow > 0 {
+ 					var existingPayment domain.SalesPayment
+-					errPay := tx.Where("sales_transaction_id = ?", existingTrx.ID).First(&existingPayment).Error
++					errPay := tx.Where("sales_transaction_id = ? OR sales_order_id = ?", existingTrx.ID, so.ID).Where("payment_status = ?", "PENDING").First(&existingPayment).Error
+ 					
+ 					if errPay == nil && existingPayment.PaymentStatus == "PENDING" {
+ 						// Secara dinamis update setoran yang sudah ada di meja Kasir sesuai dengan hasil retur/adjust
+ 						payMethodForPayment := paymentMethod
+ 						if paymentMethod == "TEMPO" {
+ 							payMethodForPayment = "CASH"
+ 						}
++						newNotes := existingPayment.Notes
++						if strings.Contains(newNotes, "[SELISIH/CROSSCHECK]") && !strings.Contains(newNotes, "[ADJUSTED]") {
++							newNotes += " [ADJUSTED]"
++						}
+ 						tx.Model(&existingPayment).Updates(map[string]interface{}{
+ 							"amount":         paidNow,
+ 							"payment_method": payMethodForPayment,
++							"notes":          newNotes,
+ 						})
+ 					} else if errPay != nil && paidNow > 0 {

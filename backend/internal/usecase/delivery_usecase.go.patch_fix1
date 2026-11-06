@@ -1,0 +1,32 @@
+--- internal/usecase/delivery_usecase.go
++++ internal/usecase/delivery_usecase.go
+@@ -2661,12 +2661,29 @@
+ 							"notes":          newNotes,
+ 						})
+-					} else {
++					} else if errPay != nil && paidNow > 0 {
+ 						trxID := existingTrx.ID
++						// Untuk TEMPO, pembayaran masuk sebagai CASH (uang tunai yang diterima driver)
++						payMethodForPayment := paymentMethod
++						if paymentMethod == "TEMPO" {
++							payMethodForPayment = "CASH"
++						}
++						paymentStatus := "PENDING"
++						if batch.CashSettledAt != nil && batch.Status != domain.DeliveryBatchWaitingCrosscheck {
++							paymentStatus = "SUCCESS"
++						}
++						payment := &domain.SalesPayment{
++							SalesOrderID:       &so.ID,
++							SalesTransactionID: &trxID,
++							EmployeeID:         so.EmployeeID,
++							Amount:             paidNow,
++							PaymentMethod:      payMethodForPayment,
++							PaymentStatus:      paymentStatus,
++							PaymentDate:        now,
++							Notes:              "Setoran driver harian - input admin nota",
++						}
++						_ = tx.Create(payment)
++						if paymentStatus == "SUCCESS" {
+ 							// Note: for safety, just let it be, but ideally we update trx.PaidAmount
+ 							tx.Model(&domain.SalesTransaction{}).Where("id = ?", trxID).UpdateColumn("paid_amount", gorm.Expr("paid_amount + ?", paidNow))
+ 						}

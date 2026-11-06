@@ -1,0 +1,1 @@
+-- No rollback needed for data deduplication cleanup.

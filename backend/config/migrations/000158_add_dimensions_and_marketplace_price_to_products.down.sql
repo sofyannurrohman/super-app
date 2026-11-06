@@ -1,0 +1,5 @@
+ALTER TABLE products DROP COLUMN IF EXISTS length;
+ALTER TABLE products DROP COLUMN IF EXISTS width;
+ALTER TABLE products DROP COLUMN IF EXISTS height;
+ALTER TABLE products DROP COLUMN IF EXISTS volume;
+ALTER TABLE products DROP COLUMN IF EXISTS marketplace_factory_price;

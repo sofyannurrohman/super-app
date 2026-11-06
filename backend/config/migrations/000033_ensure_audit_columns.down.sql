@@ -1,0 +1,4 @@
+-- No-op: we don't want to remove audit columns once added as it might break existing data/audit trails
+-- But for completeness:
+-- ALTER TABLE sales_order_item_batches DROP COLUMN IF EXISTS created_at;
+-- ALTER TABLE sales_order_item_batches DROP COLUMN IF EXISTS updated_at;

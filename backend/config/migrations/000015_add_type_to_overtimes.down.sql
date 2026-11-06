@@ -1,0 +1,1 @@
+ALTER TABLE overtimes DROP COLUMN IF EXISTS type;

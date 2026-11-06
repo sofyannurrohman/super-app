@@ -1,0 +1,11 @@
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS po_schedule DATE;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS invoice_photo_url VARCHAR(255);
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS receipt_photo_url VARCHAR(255);
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS billing_schedule DATE;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS return_schedule DATE;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS event_schedule DATE;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS spg_schedule DATE;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS stock_update_log TEXT;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS promo_update_log TEXT;
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS supermarket_name VARCHAR(255);
+ALTER TABLE mt_purchase_orders ADD COLUMN IF NOT EXISTS md_name VARCHAR(255);

@@ -1,0 +1,2 @@
+ALTER TABLE marketplace_product_mappings
+DROP COLUMN IF EXISTS marketplace_inventory_id;

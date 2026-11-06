@@ -1,0 +1,1 @@
+ALTER TABLE shifts DROP COLUMN IF EXISTS branch_id;
