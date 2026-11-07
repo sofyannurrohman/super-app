@@ -1,4 +1,9 @@
 -- Convert empty string client_ids to NULL to prevent unique constraint conflicts
+-- Fresh trial databases reach this migration before GORM adds these fields.
+ALTER TABLE sales_transactions ADD COLUMN IF NOT EXISTS client_id VARCHAR(50);
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS client_id VARCHAR(50);
+ALTER TABLE sales_visits ADD COLUMN IF NOT EXISTS client_id VARCHAR(50);
+
 UPDATE sales_transactions SET client_id = NULL WHERE client_id = '';
 UPDATE sales_orders SET client_id = NULL WHERE client_id = '';
 UPDATE sales_visits SET client_id = NULL WHERE client_id = '';
