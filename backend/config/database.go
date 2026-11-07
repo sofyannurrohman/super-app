@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"example.com/hris/backend/internal/domain"
 	"github.com/golang-migrate/migrate/v4"
 	migrate_postgres "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"example.com/hris/backend/internal/domain"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -66,6 +66,15 @@ func ConnectDB(cfg Config) *gorm.DB {
 
 	log.Println("Connected Successfully to Database")
 
+	// Historical SQL migrations reference vehicles before the seeder's GORM
+	// AutoMigrate creates it. Bootstrap the referenced key for fresh installs;
+	// AutoMigrate adds the remaining Vehicle fields after migrations finish.
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS vehicles (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+	)`).Error; err != nil {
+		log.Fatalf("Failed to bootstrap vehicles table: %v", err)
+	}
+
 	// Database Migrations using golang-migrate
 	log.Println("Running Migrations...")
 
@@ -114,6 +123,7 @@ func ConnectDB(cfg Config) *gorm.DB {
 	// Retur faktur needs these columns even when an earlier dirty migration
 	// prevents 000195/000196 from running. AutoMigrate may also be disabled.
 	for _, statement := range []string{
+		`ALTER TABLE sales_returns ADD COLUMN IF NOT EXISTS return_type VARCHAR(30) DEFAULT 'POTONG_NOTA'`,
 		`ALTER TABLE sales_returns ADD COLUMN IF NOT EXISTS invoice_adjusted_at TIMESTAMP`,
 		`ALTER TABLE sales_return_items ADD COLUMN IF NOT EXISTS sales_item_id UUID`,
 		`ALTER TABLE sales_return_items ADD COLUMN IF NOT EXISTS replacement_sales_item_id UUID`,
