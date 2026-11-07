@@ -22,6 +22,10 @@ Jika dipasang pada host yang juga menjalankan aplikasi lain, gunakan folder `/ap
 
 Untuk menghentikan: `docker compose -f compose.yaml down`. Jangan menambahkan `-v` kecuali memang ingin menghapus data trial. Integrasi email, pembayaran, marketplace, FCM, dan AI belum dikonfigurasi; fitur yang memerlukannya perlu kredensial sandbox milik klien. Aplikasi mobile perlu build terpisah dengan URL API trial.
 
+## Data demo lintas modul
+
+Pada instalasi trial di `/apps/super-app`, jalankan `sh seed-demo-modules.sh` untuk menambah contoh produk dan stok pabrik/gudang, pemasok dan permintaan pembelian, toko dan transaksi sales, pesanan branding, produk dan stok marketplace, rekening fiktif, serta kendaraan. Fixture ini dapat dijalankan ulang tanpa menggandakan record dan tidak menggunakan integrasi eksternal. Transaksi lanjutan tetap dibuat melalui alur aplikasi saat demonstrasi.
+
 ## Identitas produk
 
 Nama demo saat ini **Karsa HR**. Ganti `VITE_APP_NAME`, `VITE_APP_TAGLINE`, dan `VITE_APP_LOGO_URL` di `.env`, lalu bangun ulang frontend untuk memakai identitas lain. Untuk logo lokal, simpan aset di `frontend-web/public` dan isi URL seperti `/logo-klien.svg`. Isi kanal dukungan hanya dengan kontak yang memang akan melayani calon klien. Nama perusahaan demo di database diatur oleh `TRIAL_COMPANY_NAME`. Nama produk ini adalah identitas sementara; lakukan pemeriksaan merek sebelum penggunaan komersial.
