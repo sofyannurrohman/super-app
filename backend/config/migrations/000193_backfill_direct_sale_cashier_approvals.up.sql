@@ -1,6 +1,10 @@
 -- Direct sales entered by Admin Nota were left UNPAID without a cashier approval row.
 -- Only restore invoices with no payment or deposit activity, so existing collections
 -- cannot be queued for approval a second time.
+ALTER TABLE sales_transactions ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'CASH';
+ALTER TABLE sales_transactions ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(15,2) DEFAULT 0;
+ALTER TABLE sales_payments ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE;
+
 INSERT INTO sales_payments (
     id, sales_transaction_id, employee_id, amount, payment_method,
     payment_status, payment_date, notes, is_verified, created_at, updated_at
