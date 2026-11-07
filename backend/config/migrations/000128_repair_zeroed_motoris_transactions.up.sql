@@ -1,3 +1,6 @@
+-- A fresh trial database reaches this backfill before GORM adds the KPI field.
+ALTER TABLE sales_kpis ADD COLUMN IF NOT EXISTS total_visits INT DEFAULT 0;
+
 -- 1. Pulihkan total_amount HANYA pada sales_transactions yang 0 atau NULL dari tabel sales_payments
 UPDATE sales_transactions st
 SET total_amount = sp.total_paid,
