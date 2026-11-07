@@ -108,7 +108,9 @@ func ConnectDB(cfg Config) *gorm.DB {
 		if versionErr != nil && versionErr != migrate.ErrNilVersion {
 			log.Fatalf("Failed to read trial migration version: %v", versionErr)
 		}
-		if dirty && version != 61 {
+		// Versions 61 and 110 failed inside transactional SQL migrations in
+		// this trial rollout; their corrected migrations can be retried.
+		if dirty && version != 61 && version != 110 {
 			log.Fatalf("Trial migration %d is dirty; inspect it before retrying", version)
 		}
 		if versionErr == migrate.ErrNilVersion || (version < 60 && !dirty) {
