@@ -9,6 +9,7 @@ CREATE INDEX IF NOT EXISTS idx_marketplace_orders_branch_status ON marketplace_o
 
 -- 3. Add branch_id to marketplace_products
 ALTER TABLE marketplace_products ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES branches(id) ON DELETE SET NULL;
+ALTER TABLE marketplace_products ADD COLUMN IF NOT EXISTS sku_id VARCHAR(100);
 CREATE INDEX IF NOT EXISTS idx_marketplace_products_branch_id ON marketplace_products(branch_id);
 
 -- Drop old unique constraint on (sku_id) or (sku_id, marketplace) if exists, and recreate with branch_id
@@ -17,6 +18,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mp_sku_marketplace_branch ON marketplace_p
 
 -- 4. Add branch_id to marketplace_product_mappings
 ALTER TABLE marketplace_product_mappings ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES branches(id) ON DELETE CASCADE;
+-- Migration 000088 created mappings without sku_id; the branch index needs it.
+ALTER TABLE marketplace_product_mappings ADD COLUMN IF NOT EXISTS sku_id VARCHAR(100);
 CREATE INDEX IF NOT EXISTS idx_marketplace_product_mappings_branch_id ON marketplace_product_mappings(branch_id);
 CREATE INDEX IF NOT EXISTS idx_marketplace_product_mappings_sku_branch ON marketplace_product_mappings(sku_id, branch_id);
 
