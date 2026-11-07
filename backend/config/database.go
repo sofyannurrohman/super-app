@@ -98,6 +98,55 @@ func ConnectDB(cfg Config) *gorm.DB {
 		log.Fatal("Failed to initialize migration instance: \n", err)
 	}
 
+	// The trial starts from an empty database. Several historical SQL migrations
+	// refer to tables that the original installation created with GORM between
+	// migration runs. Create those models after the SQL base schema (version 60)
+	// and before the later migrations that depend on them. This also repairs a
+	// trial database left dirty at version 61 by an earlier seeder attempt.
+	if cfg.DBName == "hris_trial" {
+		version, dirty, versionErr := m.Version()
+		if versionErr != nil && versionErr != migrate.ErrNilVersion {
+			log.Fatalf("Failed to read trial migration version: %v", versionErr)
+		}
+		if dirty && version != 61 {
+			log.Fatalf("Trial migration %d is dirty; inspect it before retrying", version)
+		}
+		if versionErr == migrate.ErrNilVersion || (version < 60 && !dirty) {
+			if err := m.Migrate(60); err != nil && err != migrate.ErrNoChange {
+				log.Fatalf("Failed to migrate trial base schema to version 60: %v", err)
+			}
+		}
+		if versionErr == migrate.ErrNilVersion || version <= 61 {
+			// Migration 102 adds these columns without IF NOT EXISTS, so create
+			// only the key here and let that migration add them.
+			if err := db.Exec(`CREATE TABLE IF NOT EXISTS branch_deposits (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+			)`).Error; err != nil {
+				log.Fatalf("Failed to bootstrap trial branch deposits: %v", err)
+			}
+			bootstrapDB := db.Session(&gorm.Session{})
+			bootstrapDB.Config.IgnoreRelationshipsWhenMigrating = true
+			bootstrapDB.Config.DisableForeignKeyConstraintWhenMigrating = true
+			if err := bootstrapDB.AutoMigrate(
+				&domain.Vehicle{},
+				&domain.SalesTransfer{},
+				&domain.BonusInventory{},
+				&domain.SalesBonusRequest{},
+				&domain.SalesItem{},
+				&domain.SalesInstallment{},
+				&domain.SalesOrderBonusItem{},
+				&domain.SalesTransactionBonusItem{},
+				&domain.MarketplaceToken{},
+				&domain.KasPabrik{},
+				&domain.KasTransaction{},
+				&domain.CompanyBankAccount{},
+				&domain.CashBankMutation{},
+			); err != nil {
+				log.Fatalf("Failed to bootstrap trial migration prerequisites: %v", err)
+			}
+		}
+	}
+
 	// db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";") is handled by init_schema.up.sql
 
 	err = m.Up()
@@ -106,14 +155,22 @@ func ConnectDB(cfg Config) *gorm.DB {
 			log.Println("WARNING: Dirty migration detected. Attempting auto-recovery by forcing previous version...")
 			v, _, verErr := m.Version()
 			if verErr == nil {
-				_ = m.Force(int(v) - 1)
+				if forceErr := m.Force(int(v) - 1); forceErr != nil {
+					log.Fatalf("Failed to reset dirty migration version: %v", forceErr)
+				}
 				if retryErr := m.Up(); retryErr != nil && retryErr != migrate.ErrNoChange {
+					if cfg.DBName == "hris_trial" {
+						log.Fatalf("Trial migration failed after retry: %v", retryErr)
+					}
 					log.Printf("WARNING: Retry migration returned: %v. Continuing to AutoMigrate...", retryErr)
 				} else {
 					log.Println("Migrations completed successfully after recovering dirty version.")
 				}
 			}
 		} else {
+			if cfg.DBName == "hris_trial" {
+				log.Fatalf("Trial migration failed: %v", err)
+			}
 			log.Printf("WARNING: Migration returned: %v. Continuing to AutoMigrate...", err)
 		}
 	} else {
