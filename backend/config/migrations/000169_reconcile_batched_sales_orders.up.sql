@@ -1,6 +1,9 @@
 -- Migration: Reconcile sales orders that are already assigned to active delivery batches
 -- Version: 000169
 
+-- The batch association was previously added by GORM on long-lived installs.
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS delivery_batch_id UUID REFERENCES delivery_batches(id) ON DELETE SET NULL;
+
 -- 1. Update sales orders that are in COMPLETED delivery batches
 UPDATE sales_orders so
 SET delivery_batch_id = di.delivery_batch_id,
