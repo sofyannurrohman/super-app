@@ -1,5 +1,5 @@
 const validModules = new Set(['hris', 'factory', 'warehouse', 'purchasing', 'sales', 'marketplace', 'branding', 'finance', 'rajatransport'])
-const configured = (import.meta.env.VITE_ENABLED_MODULES || 'hris')
+const configured = (import.meta.env.VITE_ENABLED_MODULES || 'hris,factory,warehouse,purchasing,sales,marketplace,branding,finance,rajatransport')
   .split(',').map((value: string) => value.trim().toLowerCase()).filter(Boolean)
 export const enabledModules = new Set(configured.filter((value: string) => validModules.has(value)))
 enabledModules.add('hris')

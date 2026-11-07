@@ -40,7 +40,7 @@ services:
       DB_NAME: hris_trial
       REDIS_ADDR: redis:6379
       SERVER_PORT: "8081"
-      ENABLED_MODULES: ${VITE_ENABLED_MODULES:-hris}
+      ENABLED_MODULES: ${VITE_ENABLED_MODULES:-hris,factory,warehouse,purchasing,sales,marketplace,branding,finance,rajatransport}
       SKIP_SEED: "true"
       SKIP_AUTO_MIGRATE: "false"
       MIDTRANS_IS_PRODUCTION: "false"
@@ -64,7 +64,7 @@ services:
       dockerfile: Dockerfile.trial
       args:
         VITE_API_BASE_URL: /api
-        VITE_ENABLED_MODULES: ${VITE_ENABLED_MODULES:-hris}
+        VITE_ENABLED_MODULES: ${VITE_ENABLED_MODULES:-hris,factory,warehouse,purchasing,sales,marketplace,branding,finance,rajatransport}
         VITE_ENABLE_PKWT: ${VITE_ENABLE_PKWT:-false}
         VITE_APP_NAME: ${VITE_APP_NAME:-Karsa HR}
         VITE_APP_TAGLINE: ${VITE_APP_TAGLINE:-Kelola tim. Gerakkan bisnis.}

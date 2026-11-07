@@ -8,7 +8,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ARG VITE_APP_NAME="Karsa HR"
 ARG VITE_APP_TAGLINE="Kelola tim. Gerakkan bisnis."
 ARG VITE_APP_LOGO_URL=/brand.svg
-ARG VITE_ENABLED_MODULES=hris
+ARG VITE_ENABLED_MODULES=hris,factory,warehouse,purchasing,sales,marketplace,branding,finance,rajatransport
 ARG VITE_ENABLE_PKWT=false
 ARG VITE_SUPPORT_EMAIL
 ARG VITE_SUPPORT_WHATSAPP_PERSONAL
