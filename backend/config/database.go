@@ -290,6 +290,19 @@ func ConnectDB(cfg Config) *gorm.DB {
 		}
 	}
 
+	// These fields have unique indexes in GORM but are excluded from its
+	// column migration, so the SQL base schema must provide them first.
+	if cfg.DBName == "hris_trial" {
+		for _, statement := range []string{
+			`ALTER TABLE companies ADD COLUMN IF NOT EXISTS code VARCHAR(20)`,
+			`ALTER TABLE factories ADD COLUMN IF NOT EXISTS warehouse_code VARCHAR(50)`,
+		} {
+			if err := db.Exec(statement).Error; err != nil {
+				log.Fatalf("Failed to prepare indexed trial fields: %v", err)
+			}
+		}
+	}
+
 	// Run AutoMigrate only if not explicitly skipped
 	if !cfg.SkipAutoMigrate {
 		log.Println("Running AutoMigrate for Modern Trade and Sales Models...")
@@ -493,47 +506,49 @@ func ConnectDB(cfg Config) *gorm.DB {
 		log.Println("⏩ Skipping GORM AutoMigrate (SKIP_AUTO_MIGRATE=true) for fast startup & zero table locks.")
 	}
 
-	// Always ensure raw material procurement columns exist (idempotent)
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchase_request_id UUID")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_rm_po_pr_id ON raw_material_purchase_orders(purchase_request_id)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_by_id UUID")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_by_name VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_by_position VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_at TIMESTAMPTZ")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_notes TEXT")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_by_id UUID")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_by_name VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_by_position VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_at TIMESTAMPTZ")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_notes TEXT")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_status VARCHAR(50) DEFAULT 'PENDING_APPROVAL'")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_notes TEXT")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_updated_by_id UUID")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_updated_by_name VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_updated_at TIMESTAMPTZ")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'UNPAID'")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS payment_notes TEXT")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejected_by_id UUID")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejected_by_name VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ")
+	// Only extend procurement tables after that module has created them.
+	if db.Migrator().HasTable("raw_material_purchase_orders") {
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchase_request_id UUID")
+		db.Exec("CREATE INDEX IF NOT EXISTS idx_rm_po_pr_id ON raw_material_purchase_orders(purchase_request_id)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_by_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_by_name VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_by_position VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_approved_at TIMESTAMPTZ")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS spv_notes TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_by_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_by_name VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_by_position VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_approved_at TIMESTAMPTZ")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS purchasing_notes TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_status VARCHAR(50) DEFAULT 'PENDING_APPROVAL'")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_notes TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_updated_by_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_updated_by_name VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS progress_updated_at TIMESTAMPTZ")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'UNPAID'")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS payment_notes TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejected_by_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejected_by_name VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ")
 
-	db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS purchase_order_id UUID")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_rm_pr_po_id ON raw_material_purchase_requests(purchase_order_id)")
-	db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS reviewed_by_id UUID")
-	db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS reviewed_by_name VARCHAR(100)")
-	db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
-	db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS review_notes TEXT")
-	db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS purchase_order_id UUID")
+		db.Exec("CREATE INDEX IF NOT EXISTS idx_rm_pr_po_id ON raw_material_purchase_requests(purchase_order_id)")
+		db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS reviewed_by_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS reviewed_by_name VARCHAR(100)")
+		db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
+		db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS review_notes TEXT")
+		db.Exec("ALTER TABLE raw_material_purchase_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT")
 
-	db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS is_paid_from_petty_cash BOOLEAN DEFAULT FALSE")
-	db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS porter_fee DECIMAL(15,2) DEFAULT 0")
-	db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS petty_cash_id UUID")
-	db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS petty_cash_status VARCHAR(30)")
+		db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS is_paid_from_petty_cash BOOLEAN DEFAULT FALSE")
+		db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS porter_fee DECIMAL(15,2) DEFAULT 0")
+		db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS petty_cash_id UUID")
+		db.Exec("ALTER TABLE raw_material_receipts ADD COLUMN IF NOT EXISTS petty_cash_status VARCHAR(30)")
 
-	db.Exec("ALTER TABLE raw_material_purchase_order_items ADD COLUMN IF NOT EXISTS factory_warehouse_id UUID")
-	db.Exec("ALTER TABLE raw_material_purchase_request_items ADD COLUMN IF NOT EXISTS factory_warehouse_id UUID")
-	db.Exec("ALTER TABLE raw_material_receipt_items ADD COLUMN IF NOT EXISTS factory_warehouse_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_order_items ADD COLUMN IF NOT EXISTS factory_warehouse_id UUID")
+		db.Exec("ALTER TABLE raw_material_purchase_request_items ADD COLUMN IF NOT EXISTS factory_warehouse_id UUID")
+		db.Exec("ALTER TABLE raw_material_receipt_items ADD COLUMN IF NOT EXISTS factory_warehouse_id UUID")
+	}
 
 	db.Exec("ALTER TABLE marketplace_orders ADD COLUMN IF NOT EXISTS cancel_reason VARCHAR(255)")
 	db.Exec("ALTER TABLE marketplace_orders ADD COLUMN IF NOT EXISTS cancel_user VARCHAR(50)")
